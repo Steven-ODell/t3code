@@ -26,6 +26,7 @@ import {
   PinnedRuntimeInstallError,
   pinnedRuntimePaths,
 } from "../cloud/pinnedRuntime.ts";
+import { SELF_UPDATE_PINNED, SELF_UPDATE_PINNED_REASON } from "../cloud/pinnedBuild.ts";
 import { compareExactServiceVersions, isExactServiceVersion } from "../cloud/serviceProtocol.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { isProcessAlive, readPersistedServerRuntimeState } from "../serverRuntimeState.ts";
@@ -330,6 +331,9 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   readonly allowDowngrade: boolean;
   readonly assumeYes: boolean;
 }) {
+  if (SELF_UPDATE_PINNED) {
+    return yield* new CliUpdateError({ reason: SELF_UPDATE_PINNED_REASON });
+  }
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const runner = yield* ProcessRunner.ProcessRunner;

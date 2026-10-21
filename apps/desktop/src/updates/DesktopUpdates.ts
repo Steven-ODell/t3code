@@ -312,6 +312,11 @@ function shouldBroadcastDownloadProgress(
   return nextStep !== previousStep || nextPercent === 100;
 }
 
+// Set only in packaged bundles by vite.config.ts: Sao's private build never
+// replaces itself. `t3-sao build && t3-sao install` ships new versions.
+declare const __T3CODE_SAO_PINNED__: boolean | undefined;
+const SAO_PINNED = typeof __T3CODE_SAO_PINNED__ !== "undefined" && __T3CODE_SAO_PINNED__ === true;
+
 function getAutoUpdateDisabledReason(args: {
   isDevelopment: boolean;
   isPackaged: boolean;
@@ -321,6 +326,9 @@ function getAutoUpdateDisabledReason(args: {
   disabledByEnv: boolean;
   hasUpdateFeedConfig: boolean;
 }): string | null {
+  if (SAO_PINNED) {
+    return "This is a private T3 Code build and does not update itself. Rebuild it with `t3-sao build && t3-sao install`.";
+  }
   if (!args.hasUpdateFeedConfig) {
     return "Automatic updates are not available because no update feed is configured.";
   }
