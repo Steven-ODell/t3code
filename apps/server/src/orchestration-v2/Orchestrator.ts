@@ -761,13 +761,22 @@ function visibleDeltaRunOrdinals(
   };
 }
 
+/**
+ * Imported history reaches the first V2 run as a context handoff, unless the
+ * provider thread resumes a native session at a known head. That session
+ * already holds the full history, so a handoff would only repeat it.
+ */
 export function shouldPrepareLegacyImportHandoff(input: {
   readonly hasCompletedRun: boolean;
   readonly historyOrigin: OrchestrationV2AppThread["historyOrigin"];
   readonly legacyImportItemCount: number;
+  readonly resumesNativeHistory?: boolean;
 }): boolean {
   return (
-    input.historyOrigin === "v1_import" && !input.hasCompletedRun && input.legacyImportItemCount > 0
+    input.historyOrigin === "v1_import" &&
+    !input.hasCompletedRun &&
+    input.legacyImportItemCount > 0 &&
+    input.resumesNativeHistory !== true
   );
 }
 
@@ -5353,6 +5362,9 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           historyOrigin: projection.thread.historyOrigin,
           hasCompletedRun: latestCompletedRun !== undefined,
           legacyImportItemCount: legacyImportItems.length,
+          resumesNativeHistory:
+            activeProviderThread?.nativeThreadRef != null &&
+            activeProviderThread.nativeConversationHeadRef !== null,
         })
           ? yield* contextHandoffService
               .prepareLegacyImport({

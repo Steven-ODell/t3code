@@ -457,6 +457,15 @@ export interface ProjectionStoreV2Shape {
     ReadonlyArray<{ readonly threadId: ThreadId; readonly worktreePath: string }>,
     ProjectionStoreV2Error
   >;
+  /**
+   * Native session ids any thread has resumed, deleted threads included, so an
+   * import neither puts a session behind two threads nor brings back a thread
+   * the user deleted.
+   */
+  readonly getBoundNativeThreadIds: () => Effect.Effect<
+    ReadonlySet<string>,
+    ProjectionStoreV2Error
+  >;
   readonly getTurnStartContext: (
     threadId: ThreadId,
     runId: RunId,
@@ -5771,6 +5780,16 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
       );
 
+    const getBoundNativeThreadIds: ProjectionStoreV2Shape["getBoundNativeThreadIds"] = () =>
+      sql<{ readonly native_id: string }>`
+        SELECT DISTINCT json_extract(payload_json, '$.nativeThreadRef.nativeId') AS native_id
+        FROM orchestration_v2_projection_provider_threads
+        WHERE json_extract(payload_json, '$.nativeThreadRef.nativeId') IS NOT NULL
+      `.pipe(
+        Effect.map((rows) => new Set(rows.map((row) => row.native_id))),
+        Effect.mapError((cause) => new ProjectionStoreSetupError({ cause })),
+      );
+
     const shellThreadStateFromRow = (input: {
       readonly row: ShellThreadRow;
       readonly runOrdinalsByThreadId: ReadonlyMap<ThreadId, Map<RunId, number>>;
@@ -6108,6 +6127,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getSettlementCandidates,
       getThreadsWithPullRequests,
       getThreadWorktreePaths,
+      getBoundNativeThreadIds,
       getThreadProjection,
       getTurnStartContext,
       getTurnStartHistory,
@@ -6267,6 +6287,21 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 ? [{ threadId: thread.id, worktreePath: thread.worktreePath }]
                 : [],
             ),
+          ),
+        ),
+      getBoundNativeThreadIds: () =>
+        Ref.get(replayState).pipe(
+          Effect.map(
+            (state) =>
+              new Set(
+                [...state.projections.values()].flatMap(({ providerThreads }) =>
+                  providerThreads.flatMap((providerThread) =>
+                    providerThread.nativeThreadRef?.nativeId != null
+                      ? [providerThread.nativeThreadRef.nativeId]
+                      : [],
+                  ),
+                ),
+              ),
           ),
         ),
       getThreadsWithPullRequests: (threadId) =>

@@ -83,6 +83,13 @@ const MAX_METADATA_OPERATIONS_PER_SOURCE = MAX_TRANSCRIPTS_PER_SOURCE * 4;
 const MAX_METADATA_RECORDS_PER_SOURCE = 100_000;
 const MAX_METADATA_RECORDS_PER_TRANSCRIPT = 1_000;
 const RECENT_THREAD_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+/** The UUID that ends a Claude transcript or Codex rollout file name. */
+const SESSION_ID_SUFFIX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * An onboarding scan followed by per-project imports reuses one discovery
+ * pass. Later imports rediscover, so sessions started since then are found.
+ */
+const CANDIDATE_CACHE_TTL_MS = 30_000;
 /**
  * Large tool results (especially screenshots) can make an otherwise ordinary
  * Codex transcript several GiB. Streaming field selection avoids allocating
@@ -115,6 +122,7 @@ const TranscriptRecord = Schema.Struct({
   timestamp: Schema.optional(Schema.String),
   cwd: Schema.optional(Schema.String),
   sessionId: Schema.optional(Schema.String),
+  uuid: Schema.optional(Schema.String),
   aiTitle: Schema.optional(Schema.String),
   isSidechain: Schema.optional(Schema.Boolean),
   isMeta: Schema.optional(Schema.Boolean),
@@ -166,6 +174,8 @@ export interface AgentSessionThread {
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly messages: ReadonlyArray<AgentSessionThreadMessage>;
+  /** Last main-chain Claude message, where a resumed session continues. */
+  readonly nativeHeadId: string | null;
 }
 
 export type AgentSessionRecentThread =
@@ -189,9 +199,19 @@ export class AgentSessionScanner extends Context.Service<
      * error directly — there is no server-local context worth wrapping.
      */
     readonly scan: Effect.Effect<AgentSessionScanResult, AgentSessionScanError>;
+    /**
+     * Sessions that ran in `workspaceRoot` during the last 30 days, newest
+     * first. `providerSessionIds` narrows the stream to those sessions, drops
+     * the recency window, and keeps every message. `boundSessionIds` are left
+     * out before they are read, so they spend none of the import budget.
+     */
     readonly recentThreads: (
       workspaceRoot: string,
       completedSources?: ReadonlyArray<AgentSessionImportSource>,
+      options?: {
+        readonly providerSessionIds?: ReadonlyArray<string>;
+        readonly boundSessionIds?: ReadonlySet<string>;
+      },
     ) => Stream.Stream<AgentSessionRecentThread, AgentSessionScanError>;
   }
 >()("t3/project/AgentSessionScanner") {}
@@ -289,15 +309,17 @@ export function parseAgentSessionTranscript(
     readonly contents: string;
   },
   lines = splitTranscriptRecords(input.contents, MAX_IMPORT_RECORDS + 1),
+  maxMessages = MAX_IMPORTED_MESSAGES,
 ): AgentSessionThread | null {
   if (lines.length > MAX_IMPORT_RECORDS) return null;
   const records = lines.flatMap((line) => Option.toArray(decodeTranscriptRecord(line)));
-  return parseAgentSessionRecords(input, records);
+  return parseAgentSessionRecords(input, records, maxMessages);
 }
 
 function parseAgentSessionRecords(
   input: AgentSessionTranscriptMetadata,
   records: ReadonlyArray<DecodedTranscriptRecord>,
+  maxMessages = MAX_IMPORTED_MESSAGES,
 ): AgentSessionThread | null {
   const fallbackTimestamp = DateTime.formatIso(DateTime.makeUnsafe(input.lastActiveAtMs));
   // Claude filenames are session IDs. Codex rollout filenames include extra
@@ -305,6 +327,7 @@ function parseAgentSessionRecords(
   let providerSessionId = input.source === "codex" ? "" : input.fallbackSessionId;
   let title: string | null = null;
   let model: string | null = null;
+  let nativeHeadId: string | null = null;
   let hasCodexSessionId = false;
   const messages: Array<AgentSessionThreadMessage & { readonly codexResponseUser: boolean }> = [];
   let firstUserMessage:
@@ -373,7 +396,7 @@ function parseAgentSessionRecords(
       firstUserMessage = message;
     }
     messages.push(message);
-    if (messages.length > MAX_IMPORTED_MESSAGES) messages.shift();
+    if (messages.length > maxMessages) messages.shift();
   };
 
   const hasMatchingCodexEventInTurn = (text: string) => {
@@ -396,6 +419,13 @@ function parseAgentSessionRecords(
   for (const record of records) {
     recordIndex += 1;
     if (input.source === "claudeAgent") {
+      if (
+        record.isSidechain !== true &&
+        (record.type === "user" || record.type === "assistant") &&
+        record.uuid?.trim()
+      ) {
+        nativeHeadId = record.uuid.trim();
+      }
       if (
         record.isSidechain === true ||
         record.isMeta === true ||
@@ -491,7 +521,7 @@ function parseAgentSessionRecords(
   const { codexResponseUser: _codexResponseUser, ...visibleFirstUserMessage } = firstUserMessage;
   const retainedMessages = firstUserMessageRetained
     ? visibleMessages
-    : [visibleFirstUserMessage, ...visibleMessages.slice(-(MAX_IMPORTED_MESSAGES - 1))];
+    : [visibleFirstUserMessage, ...visibleMessages.slice(-(maxMessages - 1))];
   const derivedTitle = visibleFirstUserMessage.text.trim().split("\n")[0]?.slice(0, 100).trim();
 
   return {
@@ -503,6 +533,7 @@ function parseAgentSessionRecords(
     createdAt: retainedMessages[0]?.createdAt ?? fallbackTimestamp,
     updatedAt: fallbackTimestamp,
     messages: retainedMessages,
+    nativeHeadId,
   };
 }
 
@@ -633,8 +664,10 @@ export const make = Effect.gen(function* () {
   const hostEnvironment = yield* HostProcess.Environment;
   const homeDir = yield* HostProcess.HomeDirectory;
   // `/private/tmp` is what macOS reports for sessions started in `/tmp`.
+  // The home directory stays importable: voice assistants and plain
+  // terminal sessions run there, and it can be a project root.
   const excludedProjectRoots = new Set(
-    [homeDir, NodeOS.tmpdir(), "/tmp", "/private/tmp"].map((directory) =>
+    [NodeOS.tmpdir(), "/tmp", "/private/tmp"].map((directory) =>
       normalizeProjectPathForComparison(path.resolve(directory)),
     ),
   );
@@ -1195,11 +1228,17 @@ export const make = Effect.gen(function* () {
     return { candidates: raw, truncated };
   });
 
-  let cachedCandidates: ReadonlyArray<RawCandidate> | null = null;
+  let cachedCandidates: {
+    readonly candidates: ReadonlyArray<RawCandidate>;
+    readonly collectedAtMs: number;
+  } | null = null;
 
   const scan: AgentSessionScanner["Service"]["scan"] = Effect.gen(function* () {
     const { candidates: raw, truncated } = yield* collectCandidates();
-    cachedCandidates = raw;
+    cachedCandidates = {
+      candidates: raw,
+      collectedAtMs: DateTime.toEpochMillis(yield* DateTime.now),
+    };
 
     // Filesystem identity merges symlinks and case aliases without collapsing
     // distinct case-sensitive directories.
@@ -1327,16 +1366,39 @@ export const make = Effect.gen(function* () {
   const prepareRecentThreads = Effect.fn("AgentSessionScanner.prepareRecentThreads")(function* (
     workspaceRoot: string,
     completedSources: ReadonlyArray<AgentSessionImportSource>,
+    providerSessionIds: ReadonlyArray<string> | undefined,
+    boundSessionIds: ReadonlySet<string>,
   ) {
     const root = path.resolve(expandHomePath(workspaceRoot, homeDir));
     const realRoot = yield* fileSystem.realPath(root).pipe(Effect.orElseSucceed(() => root));
     if (isExcludedProjectPath(root) || isExcludedProjectPath(realRoot)) return Stream.empty;
     const rootIdentity = yield* directoryIdentity(root);
     const nowMs = DateTime.toEpochMillis(yield* DateTime.now);
-    const cutoffMs = nowMs - RECENT_THREAD_WINDOW_MS;
+    const requestedSessions = providerSessionIds === undefined ? null : new Set(providerSessionIds);
+    const cutoffMs = requestedSessions === null ? nowMs - RECENT_THREAD_WINDOW_MS : 0;
+    // Claude names transcripts after the session and Codex rollouts end with
+    // it, so the file name selects sessions before any read.
+    const isWantedTranscript = (filePath: string) => {
+      const name = path.basename(filePath, ".jsonl");
+      const sessionId = name.match(SESSION_ID_SUFFIX)?.[0] ?? name;
+      return (
+        !boundSessionIds.has(sessionId) &&
+        (requestedSessions === null || requestedSessions.has(sessionId))
+      );
+    };
 
-    const candidates = cachedCandidates ?? (yield* collectCandidates()).candidates;
-    cachedCandidates = candidates;
+    // A requested session is usually brand new, so it always rediscovers.
+    if (
+      requestedSessions !== null ||
+      cachedCandidates === null ||
+      nowMs - cachedCandidates.collectedAtMs >= CANDIDATE_CACHE_TTL_MS
+    ) {
+      cachedCandidates = {
+        candidates: (yield* collectCandidates()).candidates,
+        collectedAtMs: nowMs,
+      };
+    }
+    const candidates = cachedCandidates.candidates;
 
     const eligibleTranscripts: Array<{
       readonly candidate: RawCandidate;
@@ -1352,7 +1414,8 @@ export const make = Effect.gen(function* () {
         if (
           transcript.mtimeMs === null ||
           transcript.mtimeMs < cutoffMs ||
-          transcript.mtimeMs > nowMs
+          transcript.mtimeMs > nowMs ||
+          !isWantedTranscript(transcript.filePath)
         ) {
           continue;
         }
@@ -1455,9 +1518,16 @@ export const make = Effect.gen(function* () {
               lastActiveAtMs: transcript.mtimeMs,
             },
             snapshot.records,
+            requestedSessions === null ? MAX_IMPORTED_MESSAGES : Number.POSITIVE_INFINITY,
           );
-          if (parsedThread === null) {
+          if (
+            parsedThread === null ||
+            (requestedSessions !== null && !requestedSessions.has(parsedThread.providerSessionId))
+          ) {
             return Option.some<AgentSessionRecentThread>({ _tag: "Skipped" });
+          }
+          if (boundSessionIds.has(parsedThread.providerSessionId)) {
+            return Option.none<AgentSessionRecentThread>();
           }
 
           const source: AgentSessionImportSource = {
@@ -1486,7 +1556,16 @@ export const make = Effect.gen(function* () {
   const recentThreads: AgentSessionScanner["Service"]["recentThreads"] = (
     workspaceRoot,
     completedSources = [],
-  ) => Stream.unwrap(prepareRecentThreads(workspaceRoot, completedSources));
+    options = {},
+  ) =>
+    Stream.unwrap(
+      prepareRecentThreads(
+        workspaceRoot,
+        completedSources,
+        options.providerSessionIds,
+        options.boundSessionIds ?? new Set(),
+      ),
+    );
 
   return AgentSessionScanner.of({ scan, recentThreads });
 });

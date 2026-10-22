@@ -39,6 +39,17 @@ it("reissues imported context until a V2 run completes", () => {
   );
 });
 
+it("skips the imported context when the native session resumes at its head", () => {
+  assert.isFalse(
+    shouldPrepareLegacyImportHandoff({
+      historyOrigin: "v1_import",
+      hasCompletedRun: false,
+      legacyImportItemCount: 2,
+      resumesNativeHistory: true,
+    }),
+  );
+});
+
 it("records a reissued legacy handoff on an existing provider thread", () => {
   const existingHandoffId = ContextHandoffId.make("handoff:legacy-import:existing");
   const retryHandoffId = ContextHandoffId.make("handoff:legacy-import:retry");
