@@ -14,10 +14,11 @@ import { AsyncResult } from "effect/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
-import { InfoIcon, Trash2Icon } from "lucide-react";
+import { HistoryIcon, InfoIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useComposerDraftStore } from "../../composerDraftStore";
+import { useImportAgentHistory } from "../../hooks/useImportAgentHistory";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { readLocalApi } from "../../localApi";
 import {
@@ -190,6 +191,16 @@ function ProjectDetail({
     reportFailure: false,
   });
   const projectNameEditedRef = useRef(false);
+  const importAgentHistory = useImportAgentHistory();
+  const [isImportingHistory, setIsImportingHistory] = useState(false);
+  const importHistory = async () => {
+    setIsImportingHistory(true);
+    try {
+      await importAgentHistory(group.memberProjects);
+    } finally {
+      setIsImportingHistory(false);
+    }
+  };
 
   const faviconPath = representative.faviconPath ?? null;
   const projectIcon = representative.projectIcon ?? null;
@@ -540,6 +551,23 @@ function ProjectDetail({
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
         {hasMultipleCheckouts ? checkoutChoices : null}
+        <SettingsSection title="History">
+          <SettingsRow
+            title="Import Claude history"
+            description="Adds Claude Code and Codex sessions from the last 30 days that ran in this folder outside T3, such as in a terminal, as threads you can continue."
+            control={
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!canEditGroup || isImportingHistory}
+                onClick={() => void importHistory()}
+              >
+                <HistoryIcon />
+                {isImportingHistory ? "Importing…" : "Import"}
+              </Button>
+            }
+          />
+        </SettingsSection>
         <SettingsSection title="Danger">
           <SettingsRow
             title={
