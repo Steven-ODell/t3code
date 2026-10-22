@@ -177,6 +177,18 @@ describe("V2 client presentation", () => {
     ).toBeNull();
   });
 
+  it("presents an imported thread that never ran as ready, not waiting", () => {
+    const shell = presentThreadShell(environmentId, {
+      ...v2ThreadShell,
+      latestRunId: null,
+      activeProviderThreadId: ProviderThreadId.make("provider-thread-imported"),
+      activeRunId: null,
+      status: "idle",
+      pendingBackgroundTasks: [],
+    });
+    expect(shell.runtime).toBeNull();
+  });
+
   it.each([
     { kinds: ["command"], expected: "completed" },
     { kinds: ["command", "subagent"], expected: "idle" },

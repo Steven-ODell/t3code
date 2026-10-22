@@ -66,6 +66,7 @@ import {
   FolderGit2Icon,
   FolderIcon,
   FolderPlusIcon,
+  HistoryIcon,
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
@@ -128,6 +129,7 @@ import { useAtomCommand } from "../state/use-atom-command";
 import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { useScratchProject } from "../hooks/useScratchProject";
 import { useNewProject } from "../hooks/useNewProject";
+import { useImportAgentHistory } from "../hooks/useImportAgentHistory";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments";
 import { useProjects, useServerConfigs, useThreadShells, waitForProject } from "../state/entities";
@@ -640,6 +642,7 @@ function OpenCommandPaletteDialog(props: {
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
+  const importAgentHistory = useImportAgentHistory();
   const { environments } = useEnvironments();
   const desktopLocalBootstraps = useDesktopLocalBootstraps();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
@@ -2279,6 +2282,24 @@ function OpenCommandPaletteDialog(props: {
           params: { projectKey: contextualProjectGroup.projectKey },
         });
       },
+    });
+  }
+
+  const historyProject = contextualProjectRef
+    ? projectByKey.get(`${contextualProjectRef.environmentId}:${contextualProjectRef.projectId}`)
+    : undefined;
+  if (
+    historyProject &&
+    !isScratchProject(historyProject, scratchWorkspaceRootFor(historyProject.environmentId))
+  ) {
+    actionItems.push({
+      kind: "action",
+      value: "action:import-agent-history",
+      searchTerms: ["import", "history", "claude", "codex", "sessions", "terminal", "resume"],
+      title: "Import Claude history",
+      description: historyProject.title,
+      icon: <HistoryIcon className={ITEM_ICON_CLASS} />,
+      run: () => importAgentHistory([historyProject]),
     });
   }
 

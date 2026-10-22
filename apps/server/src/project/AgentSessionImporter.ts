@@ -34,6 +34,7 @@ import * as Stream from "effect/Stream";
 import * as EventSink from "../orchestration-v2/EventSink.ts";
 import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import * as Orchestrator from "../orchestration-v2/Orchestrator.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
 import * as ProviderSessionRuntime from "../persistence/ProviderSessionRuntime.ts";
 import * as AgentSessionScanner from "./AgentSessionScanner.ts";
 import * as ProjectService from "./ProjectService.ts";
@@ -47,6 +48,28 @@ const decodeImportedTranscriptPayload = Schema.decodeUnknownOption(
     importedTranscripts: Schema.optional(Schema.Array(AgentSessionImportSource)),
   }),
 );
+
+const decodeResumeCursor = Schema.decodeUnknownOption(
+  Schema.Struct({
+    resume: Schema.optional(Schema.String),
+    threadId: Schema.optional(Schema.String),
+  }),
+);
+
+/**
+ * The native session a stored runtime resumes: Claude cursors name it in
+ * `resume`, Codex cursors in `threadId`.
+ */
+function resumedSessionId(runtime: {
+  readonly providerName: string;
+  readonly resumeCursor: unknown;
+}): string | null {
+  const cursor = decodeResumeCursor(runtime.resumeCursor);
+  if (Option.isNone(cursor)) return null;
+  return (
+    cursor.value.resume ?? (runtime.providerName === "codex" ? cursor.value.threadId : null) ?? null
+  );
+}
 
 class AgentSessionUnresumableSessionError extends Schema.TaggedError<AgentSessionUnresumableSessionError>()(
   "AgentSessionUnresumableSessionError",
@@ -172,6 +195,7 @@ const make = Effect.gen(function* () {
   const eventSink = yield* EventSink.EventSinkV2;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
   const runtimes = yield* ProviderSessionRuntime.ProviderSessionRuntimeRepository;
+  const projections = yield* ProjectionStore.ProjectionStoreV2;
   const importRecentAgentThreads = Effect.fn("importRecentAgentThreadsV2")(function* (
     input: AgentSessionImportInput,
   ) {
@@ -211,7 +235,28 @@ const make = Effect.gen(function* () {
       }
       return payload.value.importedTranscripts ?? [];
     });
-    const outcomes = scanner.recentThreads(project.workspaceRoot, completedSources);
+    // T3's own threads and earlier imports already resume these sessions. A
+    // second thread would fork their native history. Threads carried over from
+    // the V1 store name their original session only in the runtime's cursor.
+    const boundSessionIds = new Set(
+      yield* projections
+        .getBoundNativeThreadIds()
+        .pipe(
+          Effect.mapError(
+            (cause) => new AgentSessionScanError({ operation: "read-projects", cause }),
+          ),
+        ),
+    );
+    for (const runtime of runtimeRows) {
+      const sessionId = resumedSessionId(runtime);
+      if (sessionId !== null) boundSessionIds.add(sessionId);
+    }
+    const outcomes = scanner.recentThreads(project.workspaceRoot, completedSources, {
+      ...(input.providerSessionIds === undefined
+        ? {}
+        : { providerSessionIds: input.providerSessionIds }),
+      boundSessionIds,
+    });
     const importedThreadIds = new Set<ThreadId>();
     let importedCount = 0;
     let skippedCount = 0;
@@ -262,10 +307,12 @@ const make = Effect.gen(function* () {
               return yield* new AgentSessionThreadModifiedError({ threadId });
             }
             yield* runtimes.recordImportedTranscript({ threadId, source });
-            return true;
+            return "imported" as const;
           }
 
+          if (boundSessionIds.has(thread.providerSessionId)) return "bound" as const;
           const driver = ProviderDriverKind.make(thread.source);
+
           const model = thread.model ?? DEFAULT_MODEL_BY_PROVIDER[driver] ?? DEFAULT_MODEL;
           const providerThreadId = idAllocator.derive.providerThread({
             driver,
@@ -273,6 +320,9 @@ const make = Effect.gen(function* () {
           });
           const createdAt = dateTime(thread.createdAt);
           const updatedAt = dateTime(thread.updatedAt);
+          // A requested import is one the user is about to continue, so it
+          // lands with their active threads instead of settled history.
+          const settled = input.providerSessionIds === undefined;
           const appThread: OrchestrationV2AppThread = {
             createdBy: "system",
             creationSource: "server",
@@ -298,8 +348,8 @@ const make = Effect.gen(function* () {
             createdAt,
             updatedAt,
             archivedAt: null,
-            settledOverride: "settled",
-            settledAt: updatedAt,
+            settledOverride: settled ? "settled" : null,
+            settledAt: settled ? updatedAt : null,
             unsettledAt: null,
             snoozedUntil: null,
             snoozedAt: null,
@@ -321,7 +371,12 @@ const make = Effect.gen(function* () {
               nativeId: thread.providerSessionId,
               strength: "strong",
             },
-            nativeConversationHeadRef: null,
+            // Claude only resumes a session with turns or a head; without
+            // one it would try to create this existing session again.
+            nativeConversationHeadRef:
+              thread.nativeHeadId === null
+                ? null
+                : { driver, nativeId: thread.nativeHeadId, strength: "weak" },
             status: "idle",
             firstRunOrdinal: null,
             lastRunOrdinal: null,
@@ -374,20 +429,20 @@ const make = Effect.gen(function* () {
             ],
           });
           yield* runtimes.recordImportedTranscript({ threadId, source });
-          return true;
+          return "imported" as const;
         }).pipe(
           Effect.catch((cause) =>
             Effect.logWarning("Could not import an agent session", {
               provider: outcome.thread.source,
               sessionId: outcome.thread.providerSessionId,
               cause,
-            }).pipe(Effect.as(false)),
+            }).pipe(Effect.as("skipped" as const)),
           ),
         );
-        if (imported) {
+        if (imported === "imported") {
           importedThreadIds.add(threadId);
           importedCount += 1;
-        } else {
+        } else if (imported === "skipped") {
           skippedCount += 1;
         }
       }),
