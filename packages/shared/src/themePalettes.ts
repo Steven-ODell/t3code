@@ -26,6 +26,7 @@ export const RESERVED_THEME_IDS: ReadonlySet<string> = new Set([
   "t3-ocean",
   "t3-ember",
   "t3-iris",
+  "cyberdream",
 ]);
 
 /**
@@ -935,6 +936,81 @@ export const IRIS_THEME: ThemeDefinition = {
     },
   },
   sidebarArtwork: true,
+};
+
+/**
+ * Sao fork: Cyberdream with the #b07cf5 purple, matching the ghostty and nvim
+ * setup (near-black #0d0d12, #c29cf8 text, no yellow or orange). Dark only.
+ * Kept out of BUILT_IN_THEMES so the mobile palette set, which needs a light
+ * and dark half of every built-in, is unchanged; web lists it beside them.
+ */
+export const CYBERDREAM_THEME: ThemeDefinition = {
+  id: "cyberdream",
+  label: "Cyberdream",
+  appearance: "dark",
+  colors: {
+    canvas: "oklch(0.161523 0.010487 285.166)",
+    chrome: "oklch(0.161523 0.010487 285.166)",
+    toolbar: "oklch(0.161523 0.010487 285.166)",
+    toolbarForeground: "oklch(0.761751 0.133952 302.342)",
+    toolbarBorder: "oklch(0.283388 0.049032 291.448)",
+    toolbarControl: "oklch(0.224272 0.029069 293.082)",
+    toolbarControlForeground: "oklch(0.761751 0.133952 302.342)",
+    toolbarControlHover: "oklch(0.283388 0.049032 291.448)",
+    surface: "oklch(0.161523 0.010487 285.166)",
+    surfaceRaised: "oklch(0.202894 0.019916 293.718)",
+    surfaceOverlay: "oklch(0.236487 0.026841 294.079)",
+    text: "oklch(0.761751 0.133952 302.342)",
+    textMuted: "oklch(0.624626 0.073727 294.467)",
+    border: "oklch(0.283388 0.049032 291.448)",
+    input: "oklch(0.345026 0.060528 292.103)",
+    focus: "oklch(0.689363 0.17688 301.793)",
+    accent: "oklch(0.689363 0.17688 301.793)",
+    accentForeground: "oklch(0.161523 0.010487 285.166)",
+    secondary: "oklch(0.224272 0.029069 293.082)",
+    secondaryForeground: "oklch(0.761751 0.133952 302.342)",
+    muted: "oklch(0.214485 0.025564 294.739)",
+    mutedForeground: "oklch(0.624626 0.073727 294.467)",
+    placeholder: "oklch(0.539264 0.062226 292.203)",
+    secondaryLabel: "oklch(0.624626 0.073727 294.467)",
+    iconMuted: "oklch(0.624626 0.073727 294.467)",
+    error: "oklch(0.709224 0.203549 358.295)",
+    errorForeground: "oklch(0.749499 0.171902 355.111)",
+    errorSurface: "oklch(0.229419 0.04456 337.95)",
+    warning: "oklch(0.885057 0.125 204.049)",
+    warningForeground: "oklch(0.885057 0.125 204.049)",
+    warningSurface: "oklch(0.255958 0.029838 210.108)",
+    update: "oklch(0.885043 0.232838 144.672)",
+    updateForeground: "oklch(0.885043 0.232838 144.672)",
+    updateSurface: "oklch(0.253648 0.038904 154.611)",
+    accentSurface: "oklch(0.274203 0.056803 295.801)",
+    accentSurfaceForeground: "oklch(0.878056 0.072407 302.808)",
+    messageSurface: "oklch(0.253075 0.050424 294.448)",
+    messageForeground: "oklch(0.855797 0.078374 302.206)",
+    messageAction: "oklch(0.741515 0.250675 331.406)",
+    messageActionForeground: "oklch(0.161523 0.010487 285.166)",
+    messageActionHover: "oklch(0.788787 0.197257 330.701)",
+    codeBackground: "oklch(0.182202 0.014273 291.464)",
+    codeForeground: "oklch(0.885057 0.125 204.049)",
+    searchMatchBackground: "oklch(0.70706 0.154454 257.149)",
+    searchMatchForeground: "oklch(0.161523 0.010487 285.166)",
+    searchMatchActiveBackground: "oklch(0.741515 0.250675 331.406)",
+    searchMatchActiveForeground: "oklch(0.161523 0.010487 285.166)",
+    sidebar: "oklch(0.178209 0.016391 290.359)",
+    sidebarForeground: "oklch(0.761751 0.133952 302.342)",
+    sidebarMutedForeground: "oklch(0.624626 0.073727 294.467)",
+    sidebarControlSurface: "oklch(0.236487 0.026841 294.079)",
+    sidebarRowHover: "oklch(0.224272 0.029069 293.082)",
+    sidebarRowActive: "oklch(0.274203 0.056803 295.801)",
+    sidebarRowSelected: "oklch(0.317002 0.086339 290.763)",
+    sidebarBorder: "oklch(0.250065 0.039448 292.036)",
+    terminalBackground: "oklch(0.161523 0.010487 285.166)",
+    terminalForeground: "oklch(0.761751 0.133952 302.342)",
+    terminalCursor: "oklch(0.605631 0.218915 292.717)",
+    terminalSelection: "oklch(0.335962 0.081009 294.372)",
+    terminalScrollbar: "oklch(0.283388 0.049032 291.448)",
+    terminalScrollbarHover: "oklch(0.406315 0.077769 291.335)",
+  },
 };
 
 export const BUILT_IN_THEMES: ReadonlyArray<ThemeDefinition> = [

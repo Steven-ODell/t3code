@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vite-plus/test";
 import { converter } from "culori/fn";
-import { BUILT_IN_THEMES } from "@t3tools/shared/themePalettes";
 
 import {
   applyThemeColorPreview,
@@ -30,6 +29,7 @@ import {
   themeAllowsSidebarArtwork,
   T3_CHAT_THEME,
   EMBER_THEME,
+  WEB_BUILT_IN_THEMES,
   GROVE_THEME,
   IRIS_THEME,
   OCEAN_THEME,
@@ -83,7 +83,7 @@ function contrastRatio(first: string, second: string): number {
 
 describe("theme files", () => {
   it("keeps every built-in palette value in canonical OKLCH form", () => {
-    for (const theme of BUILT_IN_THEMES) {
+    for (const theme of WEB_BUILT_IN_THEMES) {
       for (const colors of [theme.colors, ...Object.values(theme.variants ?? {})]) {
         for (const value of Object.values(colors)) {
           expect(toCanonicalThemeColor(value)).toBe(value);
@@ -102,7 +102,10 @@ describe("theme files", () => {
     const palettes = [
       getStandardThemeColors("light"),
       getStandardThemeColors("dark"),
-      ...BUILT_IN_THEMES.flatMap((theme) => [theme.colors, ...Object.values(theme.variants ?? {})]),
+      ...WEB_BUILT_IN_THEMES.flatMap((theme) => [
+        theme.colors,
+        ...Object.values(theme.variants ?? {}),
+      ]),
     ];
     for (const colors of palettes) {
       expect(

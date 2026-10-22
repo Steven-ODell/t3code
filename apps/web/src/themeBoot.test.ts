@@ -9,6 +9,7 @@ import {
   isKnownThemePreference,
   resolveThemeAppearance,
   T3_CHAT_THEME,
+  CYBERDREAM_THEME,
   EMBER_THEME,
   GROVE_THEME,
   IRIS_THEME,
@@ -364,6 +365,20 @@ describe("index.html boot script", () => {
         expect(boot.metaContent).toBe(colors!.chrome);
       }
     }
+  });
+
+  it("boots the dark-only Cyberdream dark even when the system is light", () => {
+    const colors = CYBERDREAM_THEME.colors;
+    const boot = runBootScript({
+      storage: { [THEME_STORAGE_KEY]: CYBERDREAM_THEME.id },
+      prefersDark: false,
+    });
+    expect(boot.themeId).toBe(CYBERDREAM_THEME.id);
+    expect(boot.isDark).toBe(true);
+    expect(boot.bootVariables["--boot-background"]).toBe(colors.canvas);
+    expect(boot.bootVariables["--boot-foreground"]).toBe(colors.text);
+    expect(boot.bootVariables["--boot-accent"]).toBe(colors.accent);
+    expect(boot.backgroundColor).toBe(colors.chrome);
   });
 
   it("applies the matching half of an automatic mix to the splash", () => {

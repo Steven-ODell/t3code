@@ -121,6 +121,14 @@
               chrome: "oklch(0.225975 0.031062 293.741)",
             },
           },
+          cyberdream: {
+            dark: {
+              background: "oklch(0.161523 0.010487 285.166)",
+              foreground: "oklch(0.761751 0.133952 302.342)",
+              accent: "oklch(0.689363 0.17688 301.793)",
+              chrome: "oklch(0.161523 0.010487 285.166)",
+            },
+          },
         };
         // Keep the built-in mode list in sync with the runtime so the selected
         // T3 Chat palette is visible before React has mounted.
@@ -144,6 +152,7 @@
           "t3-ocean",
           "t3-ember",
           "t3-iris",
+          "cyberdream",
         ];
         // Update every theme-color meta so any element another layer added
         // carries the resolved color too.
@@ -250,7 +259,12 @@
             themeModes !== null;
           const theme = isKnownTheme && storedTheme ? storedTheme : "system";
           const isThemed = isKnownTheme && themeModes !== null;
-          const baseAppearance = customTheme ? customTheme.appearance : "light";
+          // A built-in with one mode (Cyberdream is dark only) is based on that mode.
+          const baseAppearance = customTheme
+            ? customTheme.appearance
+            : builtInModes?.length === 1
+              ? builtInModes[0]
+              : "light";
           const systemMode = prefersDark ? "dark" : "light";
           const storedAppearanceMode = window.localStorage.getItem(
             THEME_APPEARANCE_MODE_STORAGE_KEY,
