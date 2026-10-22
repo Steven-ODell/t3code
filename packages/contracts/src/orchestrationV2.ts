@@ -1937,6 +1937,16 @@ export const OrchestrationV2LatestVisibleMessageSummary = Schema.Struct({
 export type OrchestrationV2LatestVisibleMessageSummary =
   typeof OrchestrationV2LatestVisibleMessageSummary.Type;
 
+/**
+ * How full the active provider thread's context window is, as of its last
+ * usage report. Only the two counts a list row needs, so shell rows stay small.
+ */
+export const OrchestrationV2ShellContextUsage = Schema.Struct({
+  usedTokens: NonNegativeInt,
+  maxTokens: Schema.optional(PositiveInt),
+});
+export type OrchestrationV2ShellContextUsage = typeof OrchestrationV2ShellContextUsage.Type;
+
 export const OrchestrationV2ThreadShell = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -1996,6 +2006,8 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   ),
   /** Native goal on the active provider thread; omitted by servers without goals. */
   goal: Schema.optional(Schema.NullOr(OrchestrationV2ProviderGoal)),
+  /** Context fill of the active provider thread; omitted by servers without it. */
+  contextUsage: Schema.optional(Schema.NullOr(OrchestrationV2ShellContextUsage)),
   itemCount: NonNegativeInt,
   visibleItemCount: NonNegativeInt,
   createdAt: Schema.DateTimeUtc,

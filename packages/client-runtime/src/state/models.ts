@@ -6,6 +6,7 @@ import type {
   MessageId,
   OrchestrationProjectShell,
   OrchestrationV2ProviderGoal,
+  OrchestrationV2ShellContextUsage,
   OrchestrationV2RunStatus,
   OrchestrationV2ProviderFailureClass,
   OrchestrationV2ThreadProjection,
@@ -120,6 +121,8 @@ export interface EnvironmentThreadShell {
   readonly providerInstanceHistory: ReadonlyArray<ProviderInstanceId>;
   /** Native `/goal` on the active provider thread. */
   readonly goal: OrchestrationV2ProviderGoal | null;
+  /** Context fill of the active provider thread, as of its last usage report. */
+  readonly contextUsage: OrchestrationV2ShellContextUsage | null;
   readonly itemCount: number;
   readonly visibleItemCount: number;
   readonly createdAt: string;
@@ -271,6 +274,7 @@ export function presentThreadShell(
     pendingBackgroundTasks: thread.pendingBackgroundTasks ?? [],
     providerInstanceHistory: thread.providerInstanceHistory ?? [],
     goal: thread.goal ?? null,
+    contextUsage: thread.contextUsage ?? null,
     itemCount: thread.itemCount,
     visibleItemCount: thread.visibleItemCount,
     createdAt: iso(thread.createdAt),

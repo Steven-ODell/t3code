@@ -2361,6 +2361,84 @@ it.layer(layerTest)("ProjectionStoreV2", (it) => {
     }),
   );
 
+  it.effect("shows the active provider thread's context fill on the shell", () =>
+    Effect.gen(function* () {
+      const projectionStore = yield* ProjectionStore.ProjectionStoreV2;
+      const now = yield* DateTime.now;
+      const threadId = ThreadId.make("thread:provider-context");
+      yield* projectionStore.apply({
+        id: EventId.make("event:provider-context:thread"),
+        type: "thread.created",
+        threadId,
+        occurredAt: now,
+        payload: {
+          createdBy: "user",
+          creationSource: "web",
+          id: threadId,
+          projectId: ProjectId.make("project:provider-context"),
+          title: "Provider context",
+          providerInstanceId,
+          modelSelection,
+          runtimeMode: "full-access",
+          interactionMode: "default",
+          branch: null,
+          worktreePath: null,
+          activeProviderThreadId: null,
+          lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+          forkedFrom: null,
+          createdAt: now,
+          updatedAt: now,
+          archivedAt: null,
+          settledOverride: null,
+          settledAt: null,
+          lastVisitedAt: null,
+          deletedAt: null,
+        },
+      });
+      const applyProviderThread = (
+        contextUsage: OrchestrationV2ProviderThread["contextUsage"],
+        seconds: number,
+      ) =>
+        projectionStore.apply({
+          id: EventId.make(`event:provider-context:${seconds}`),
+          type: "provider-thread.updated",
+          threadId,
+          driver,
+          occurredAt: DateTime.add(now, { seconds }),
+          payload: {
+            id: ProviderThreadId.make("provider-thread:provider-context"),
+            driver,
+            providerInstanceId,
+            providerSessionId: null,
+            appThreadId: threadId,
+            ownerNodeId: null,
+            nativeThreadRef: null,
+            nativeConversationHeadRef: null,
+            status: "idle",
+            firstRunOrdinal: null,
+            lastRunOrdinal: null,
+            handoffIds: [],
+            forkedFrom: null,
+            contextUsage,
+            createdAt: now,
+            updatedAt: DateTime.add(now, { seconds }),
+          },
+        });
+      const shellContext = Effect.map(
+        projectionStore.getShellSnapshot(),
+        (snapshot) => snapshot.threads.find((thread) => thread.id === threadId)?.contextUsage,
+      );
+
+      yield* applyProviderThread(null, 0);
+      assert.isNull(yield* shellContext);
+      // Only the counts a row needs reach the shell.
+      yield* applyProviderThread({ usedTokens: 43_063, maxTokens: 1_000_000, inputTokens: 12 }, 1);
+      assert.deepEqual(yield* shellContext, { usedTokens: 43_063, maxTokens: 1_000_000 });
+      yield* applyProviderThread({ usedTokens: 120_000 }, 2);
+      assert.deepEqual(yield* shellContext, { usedTokens: 120_000 });
+    }),
+  );
+
   it.effect("reads the shell snapshot first and decodes it in a separate step", () =>
     Effect.gen(function* () {
       const projectionStore = yield* ProjectionStore.ProjectionStoreV2;

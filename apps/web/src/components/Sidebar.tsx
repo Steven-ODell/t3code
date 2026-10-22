@@ -283,6 +283,8 @@ import {
 } from "./ui/combobox";
 import { SidebarContent, SidebarGroup, useSidebar } from "./ui/sidebar";
 import { SidebarChromeFooter, SidebarChromeHeader } from "./sidebar/SidebarChrome";
+import { SidebarContextLine, SidebarContextRing } from "./sidebar/SidebarContextMeter";
+import { contextFillOf } from "./sidebar/sidebarContextUsage";
 import { SidebarHeaderIconButton, SidebarThreadHeader } from "./sidebar/SidebarThreadHeader";
 import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuShortcut, MenuTrigger } from "./ui/menu";
 import { Tooltip, TooltipPopup, TooltipProvider, TooltipTrigger } from "./ui/tooltip";
@@ -472,6 +474,7 @@ function SidebarThreadTooltip({
     .filter((instanceId) => instanceId !== modelInstanceId)
     .map((instanceId) => providerEntryByInstanceId.get(instanceId)?.displayName ?? instanceId);
   const supportsMultiplePullRequests = useSupportsMultiplePullRequests(thread.environmentId);
+  const contextFill = contextFillOf(thread.contextUsage);
   return (
     <ThreadHoverCardPopup side="right" align="start" sideOffset={4}>
       <ThreadHoverCard
@@ -536,6 +539,7 @@ function SidebarThreadTooltip({
             </div>
           </div>
         ) : null}
+        {contextFill ? <SidebarContextLine fill={contextFill} /> : null}
         {previousProviderNames.length > 0 ? (
           <div className="flex min-w-0 items-center gap-2">
             <ArrowRightLeftIcon className="size-3 shrink-0 stroke-muted-foreground" />
@@ -1957,6 +1961,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
   }
 
   const diff = latestRunDiff(thread);
+  const contextFill = contextFillOf(thread.contextUsage);
 
   return (
     <li
@@ -2209,6 +2214,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: {
                 aria-hidden
                 className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
               >
+                {contextFill ? <SidebarContextRing fill={contextFill} /> : null}
                 {isRemote && !showsScratchMachine ? (
                   <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
                     <EnvironmentMachineIcon
