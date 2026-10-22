@@ -64,6 +64,12 @@ describe("semver helpers", () => {
     expect(satisfiesSemverRange("0.0.4", "^0.0.3")).toBe(false);
   });
 
+  it("ignores build metadata when checking ranges", () => {
+    expect(satisfiesSemverRange("0.1.0+sao.c12367cde", ">=0.0.46")).toBe(true);
+    expect(satisfiesSemverRange("0.1.0+sao.c12367cde", ">=0.0.42 <0.0.46")).toBe(false);
+    expect(satisfiesSemverRange("1.2.3-rc.1+build.5", ">=1.2")).toBe(true);
+  });
+
   it("rejects invalid versions and unsupported range syntax", () => {
     expect(satisfiesSemverRange("not-a-version", ">=24.0")).toBe(false);
     expect(satisfiesSemverRange("24.10.0", "~24.10")).toBe(false);
