@@ -1,8 +1,14 @@
-import { SecretRequestError, ThreadId, TurnItemId } from "@t3tools/contracts";
+import {
+  ASKPASS_TURN_ITEM_PREFIX,
+  SecretRequestError,
+  ThreadId,
+  TurnItemId,
+} from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
   secretRequestAnswerInput,
+  secretRequestCopy,
   secretRequestDisplay,
   secretRequestFailureMessage,
   type SecretRequestItem,
@@ -43,6 +49,29 @@ describe("secretRequestDisplay", () => {
     expect(secretRequestDisplay({ secretStatus: "saved" }, "inherited")).toMatchObject({
       outcome: "saved",
     });
+  });
+});
+
+describe("password prompts", () => {
+  it("say the value goes to the command rather than being stored", () => {
+    const prompt = { id: `${ASKPASS_TURN_ITEM_PREFIX}thread-1:1` };
+    expect(secretRequestCopy(prompt).submitLabel).toBe("Send");
+    expect(secretRequestCopy(prompt).privacyNote).not.toContain("Stored");
+    expect(secretRequestDisplay({ ...prompt, secretStatus: "saved" }, "local")).toMatchObject({
+      outcome: "saved",
+      label: "Sent to the command and kept private",
+    });
+    expect(secretRequestCopy(item).submitLabel).toBe("Save securely");
+  });
+
+  it("send a password exactly as typed, spaces included", () => {
+    const prompt = { ...item, id: TurnItemId.make(`${ASKPASS_TURN_ITEM_PREFIX}thread-1:1`) };
+    expect(secretRequestAnswerInput(prompt, { type: "save", secret: " pass word " })).toEqual({
+      threadId: prompt.threadId,
+      turnItemId: prompt.id,
+      answer: { type: "save", secret: " pass word " },
+    });
+    expect(secretRequestAnswerInput(prompt, { type: "save", secret: "  " })).toBeNull();
   });
 });
 

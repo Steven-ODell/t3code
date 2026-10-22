@@ -1,4 +1,8 @@
-import type { OrchestrationV2TurnItem, SecretRequestAnswerInput } from "@t3tools/contracts";
+import {
+  ASKPASS_TURN_ITEM_PREFIX,
+  type OrchestrationV2TurnItem,
+  type SecretRequestAnswerInput,
+} from "@t3tools/contracts";
 
 export type SecretRequestItem = Extract<
   OrchestrationV2TurnItem,
@@ -8,6 +12,24 @@ export type SecretRequestItem = Extract<
 /** Shown under the field: the one promise the card makes about the value. */
 export const SECRET_REQUEST_PRIVACY_NOTE = "Stored securely, never shown to the agent";
 export const SECRET_REQUEST_DEFAULT_PLACEHOLDER = "Paste the secret";
+
+/** Whether the card is a password prompt from sudo or ssh rather than an agent's request. */
+export function isAskpassRequest(item: { readonly id?: string }): boolean {
+  return item.id?.startsWith(ASKPASS_TURN_ITEM_PREFIX) ?? false;
+}
+
+/** The submit button and the promise under the field. A password prompt's value is never stored. */
+export function secretRequestCopy(item: { readonly id?: string }): {
+  readonly submitLabel: string;
+  readonly privacyNote: string;
+} {
+  return isAskpassRequest(item)
+    ? {
+        submitLabel: "Send",
+        privacyNote: "Goes straight to the command, never stored or shown to the agent",
+      }
+    : { submitLabel: "Save securely", privacyNote: SECRET_REQUEST_PRIVACY_NOTE };
+}
 
 /** What a secret request card shows: the form while pending, otherwise a one-line outcome. */
 export type SecretRequestDisplay =
@@ -23,6 +45,11 @@ const SAVED_DISPLAY: SecretRequestDisplay = {
   kind: "answered",
   outcome: "saved",
   label: "Saved securely and kept private",
+};
+const SENT_DISPLAY: SecretRequestDisplay = {
+  kind: "answered",
+  outcome: "saved",
+  label: "Sent to the command and kept private",
 };
 const DECLINED_DISPLAY: SecretRequestDisplay = {
   kind: "answered",
@@ -45,14 +72,14 @@ const PENDING_ELSEWHERE_DISPLAY: SecretRequestDisplay = {
  * thread (a fork) can only be answered where it was asked.
  */
 export function secretRequestDisplay(
-  item: Pick<SecretRequestItem, "secretStatus">,
+  item: Pick<SecretRequestItem, "secretStatus"> & { readonly id?: string },
   visibility: "local" | "inherited" | "synthetic",
 ): SecretRequestDisplay {
   switch (item.secretStatus) {
     case "pending":
       return visibility === "local" ? PENDING_DISPLAY : PENDING_ELSEWHERE_DISPLAY;
     case "saved":
-      return SAVED_DISPLAY;
+      return isAskpassRequest(item) ? SENT_DISPLAY : SAVED_DISPLAY;
     case "declined":
       return DECLINED_DISPLAY;
     case "cancelled":
@@ -71,8 +98,9 @@ export function secretRequestAnswerInput(
   if (answer.type === "decline") {
     return { threadId: item.threadId, turnItemId: item.id, answer: { type: "decline" } };
   }
-  const secret = answer.secret.trim();
-  if (secret.length === 0) return null;
+  if (answer.secret.trim().length === 0) return null;
+  // A password goes to sudo or ssh exactly as typed; an agent's secret is trimmed.
+  const secret = isAskpassRequest(item) ? answer.secret : answer.secret.trim();
   return { threadId: item.threadId, turnItemId: item.id, answer: { type: "save", secret } };
 }
 

@@ -1,7 +1,7 @@
 import {
   SECRET_REQUEST_DEFAULT_PLACEHOLDER,
-  SECRET_REQUEST_PRIVACY_NOTE,
   secretRequestAnswerInput,
+  secretRequestCopy,
   secretRequestDisplay,
   secretRequestFailureMessage,
   type SecretRequestItem,
@@ -59,6 +59,7 @@ function PendingSecretRequestForm(props: {
   readonly item: SecretRequestItem;
 }) {
   const { item } = props;
+  const copy = secretRequestCopy(item);
   const inputId = useId();
   const errorId = useId();
   const privacyId = useId();
@@ -148,7 +149,7 @@ function PendingSecretRequestForm(props: {
           />
         </div>
         <Button type="submit" disabled={submitting || secret.trim().length === 0}>
-          Save securely
+          {copy.submitLabel}
         </Button>
       </div>
       {error !== null ? (
@@ -162,7 +163,7 @@ function PendingSecretRequestForm(props: {
           className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
         >
           <ShieldCheckIcon className="size-3.5 shrink-0" aria-hidden />
-          {SECRET_REQUEST_PRIVACY_NOTE}
+          {copy.privacyNote}
         </p>
         <Button
           type="button"
