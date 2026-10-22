@@ -33,6 +33,7 @@ import { guardHttpResponseWriteErrors } from "./httpResponseErrorGuard.ts";
 import { fixPath } from "./os-jank.ts";
 import * as Ws from "./ws.ts";
 import * as AgentScopeLive from "./process/agentScope.ts";
+import * as AgentAskpass from "./askpass/AgentAskpass.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as NodePtyAdapter from "./terminal/NodePtyAdapter.ts";
 import * as PullRequestHttp from "./pullRequest/http.ts";
@@ -1114,6 +1115,8 @@ const layerMakeServer = Layer.unwrap(
       Layer.provide(VcsProcess.layer),
       // Every agent and terminal spawn reads this, so it sits below everything.
       Layer.provideMerge(AgentScopeLive.layer),
+      // Agent spawns read their askpass variables here; AskpassServer answers them.
+      Layer.provideMerge(AgentAskpass.layer),
       Layer.provideMerge(layerPlatformServices),
     );
   }),

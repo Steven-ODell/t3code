@@ -2,12 +2,14 @@ import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, it } from "@effect/vitest";
 import {
+  ASKPASS_TURN_ITEM_PREFIX,
   ProjectId,
   type OrchestrationV2ServerCommand,
   ThreadId,
   TurnItemId,
 } from "@t3tools/contracts";
 import * as Clock from "effect/Clock";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Metric from "effect/Metric";
@@ -34,6 +36,7 @@ const withService = <A, E>(
   }) => Effect.Effect<A, E>,
   options: {
     readonly threadId?: ThreadId;
+    readonly turnItemId?: TurnItemId;
     readonly runStatus?: string;
     readonly removeFails?: boolean;
     /** The agent's wait closes the card just before the answer's record lands. */
@@ -98,7 +101,7 @@ const withService = <A, E>(
             runs: [{ id: "run-1", status: options.runStatus ?? "running" }],
             turnItems: [
               {
-                id: turnItemId,
+                id: options.turnItemId ?? turnItemId,
                 threadId: requestThreadId,
                 runId: "run-1",
                 nodeId: "node-root",
@@ -142,10 +145,11 @@ const valuesOf = (stored: Map<string, Uint8Array>) =>
 it.effect("a saved answer becomes a one-use ref, and the thread only learns it was saved", () =>
   withService(({ service, stored, dispatched }) =>
     Effect.gen(function* () {
+      // Pasted with stray whitespace; the agent's value is trimmed.
       yield* service.answer({
         threadId,
         turnItemId,
-        answer: { type: "save", secret: "ghp_secret" },
+        answer: { type: "save", secret: " ghp_secret\n" },
       });
       assert.equal(dispatched.length, 1);
       assert.include(dispatched[0] as object, {
@@ -409,5 +413,82 @@ it.effect("a used value that cannot be deleted is not handed out", () =>
         assert.include(failed.message, "Could not use");
       }),
     { removeFails: true },
+  ),
+);
+
+const askpassItemId = TurnItemId.make(`${ASKPASS_TURN_ITEM_PREFIX}thread-orchestrator:1`);
+
+it.effect("a password prompt's answer goes to the waiting command and is never stored", () =>
+  withService(
+    ({ service, stored, dispatched }) =>
+      Effect.gen(function* () {
+        const waiting = yield* service.expectAnswer({ threadId, turnItemId: askpassItemId });
+        yield* service.answer({
+          threadId,
+          turnItemId: askpassItemId,
+          answer: { type: "save", secret: " hunter 2 " },
+        });
+        // A password goes to the command exactly as typed.
+        assert.deepEqual(yield* Deferred.await(waiting), Option.some(" hunter 2 "));
+        assert.deepEqual(valuesOf(stored), []);
+        // The prompt records its own status once the command has the value.
+        assert.equal(dispatched.length, 0);
+        const again = yield* service
+          .answer({ threadId, turnItemId: askpassItemId, answer: { type: "save", secret: "x" } })
+          .pipe(Effect.flip);
+        assert.equal(again.reason, "already_answered");
+      }).pipe(Effect.scoped),
+    { turnItemId: askpassItemId },
+  ),
+);
+
+it.effect("declining a password prompt tells the waiting command no", () =>
+  withService(
+    ({ service }) =>
+      Effect.gen(function* () {
+        const waiting = yield* service.expectAnswer({ threadId, turnItemId: askpassItemId });
+        yield* service.answer({ threadId, turnItemId: askpassItemId, answer: { type: "decline" } });
+        assert.isTrue(Option.isNone(yield* Deferred.await(waiting)));
+      }).pipe(Effect.scoped),
+    { turnItemId: askpassItemId },
+  ),
+);
+
+it.effect("a password prompt whose command gave up refuses the answer and stores nothing", () =>
+  withService(
+    ({ service, stored }) =>
+      Effect.gen(function* () {
+        // The command's wait ended, which closes its registration.
+        yield* service.expectAnswer({ threadId, turnItemId: askpassItemId }).pipe(Effect.scoped);
+        const late = yield* service
+          .answer({
+            threadId,
+            turnItemId: askpassItemId,
+            answer: { type: "save", secret: "hunter2" },
+          })
+          .pipe(Effect.flip);
+        assert.equal(late.reason, "agent_stopped");
+        assert.deepEqual(valuesOf(stored), []);
+      }),
+    { turnItemId: askpassItemId },
+  ),
+);
+
+it.effect("a password prompt still answers a command that outlived its turn", () =>
+  withService(
+    ({ service, stored }) =>
+      Effect.gen(function* () {
+        // The command went to the background when its tool call timed out,
+        // and the turn ended while it waited for the password.
+        const waiting = yield* service.expectAnswer({ threadId, turnItemId: askpassItemId });
+        yield* service.answer({
+          threadId,
+          turnItemId: askpassItemId,
+          answer: { type: "save", secret: "hunter2" },
+        });
+        assert.deepEqual(yield* Deferred.await(waiting), Option.some("hunter2"));
+        assert.deepEqual(valuesOf(stored), []);
+      }).pipe(Effect.scoped),
+    { turnItemId: askpassItemId, runStatus: "completed" },
   ),
 );

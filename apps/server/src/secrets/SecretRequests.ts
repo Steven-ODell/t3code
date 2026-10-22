@@ -9,6 +9,7 @@
  * @module SecretRequests
  */
 import {
+  ASKPASS_TURN_ITEM_PREFIX,
   CommandId,
   SecretRef,
   SecretRequestError,
@@ -21,12 +22,14 @@ import * as NodeCrypto from "node:crypto";
 
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
+import type * as Scope from "effect/Scope";
 import * as Semaphore from "effect/Semaphore";
 
 import * as ServerSecretStore from "../auth/ServerSecretStore.ts";
@@ -83,6 +86,15 @@ export class SecretRequests extends Context.Service<
       readonly ref: SecretRef;
       readonly projectId: ProjectId;
     }) => Effect.Effect<string, SecretRequestError>;
+    /**
+     * Routes the answer to an askpass request to the caller instead of the
+     * store: the Deferred gets the value, or None when the user declines. The
+     * caller records the card's status. Registered until the scope closes.
+     */
+    readonly expectAnswer: (input: {
+      readonly threadId: ThreadId;
+      readonly turnItemId: string;
+    }) => Effect.Effect<Deferred.Deferred<Option.Option<string>>, never, Scope.Scope>;
   }
 >()("t3/secrets/SecretRequests") {}
 
@@ -94,6 +106,20 @@ const make = Effect.gen(function* () {
   const salt = Buffer.from(
     yield* store.getOrCreateRandom("secret-request-salt", 32).pipe(Effect.orDie),
   ).toString("hex");
+
+  // Askpass requests waiting for their answer, keyed by thread and turn item.
+  const expected = new Map<string, Deferred.Deferred<Option.Option<string>>>();
+  const expectedKey = (threadId: ThreadId, turnItemId: string) => `${threadId}\u0000${turnItemId}`;
+
+  const expectAnswer: SecretRequests["Service"]["expectAnswer"] = (input) =>
+    Effect.acquireRelease(
+      Effect.gen(function* () {
+        const deferred = yield* Deferred.make<Option.Option<string>>();
+        expected.set(expectedKey(input.threadId, input.turnItemId), deferred);
+        return deferred;
+      }),
+      () => Effect.sync(() => expected.delete(expectedKey(input.threadId, input.turnItemId))),
+    );
 
   const answer: SecretRequests["Service"]["answer"] = (input) =>
     Effect.gen(function* () {
@@ -114,6 +140,20 @@ const make = Effect.gen(function* () {
       if (item.secretStatus !== "pending") {
         return yield* new SecretRequestError({ reason: "already_answered" });
       }
+      // A password prompt hands the value to the sudo or ssh waiting on it and
+      // never stores it. That command may outlive its turn, so whether it
+      // still waits decides, not the run. With nobody waiting, it gave up.
+      if (item.id.startsWith(ASKPASS_TURN_ITEM_PREFIX)) {
+        const waiting = expected.get(expectedKey(input.threadId, item.id));
+        if (waiting === undefined)
+          return yield* new SecretRequestError({ reason: "agent_stopped" });
+        const delivered = yield* Deferred.succeed(
+          waiting,
+          input.answer.type === "save" ? Option.some(input.answer.secret) : Option.none(),
+        );
+        if (!delivered) return yield* new SecretRequestError({ reason: "already_answered" });
+        return;
+      }
       // The agent is waiting inside the run that asked; once it has ended,
       // nobody will ever receive the ref, so a value saved now would be lost.
       const run = records.runs.find((candidate) => candidate.id === item.runId);
@@ -127,7 +167,7 @@ const make = Effect.gen(function* () {
       if (input.answer.type === "save") {
         const encoded = yield* encodeStored({
           projectId: records.thread.projectId,
-          value: input.answer.secret,
+          value: input.answer.secret.trim(),
           savedAt: yield* Clock.currentTimeMillis,
         }).pipe(Effect.orDie);
         yield* store
@@ -275,7 +315,7 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  return SecretRequests.of({ answer, savedRef, consume });
+  return SecretRequests.of({ answer, savedRef, consume, expectAnswer });
 });
 
 export const layer = Layer.effect(SecretRequests, make);

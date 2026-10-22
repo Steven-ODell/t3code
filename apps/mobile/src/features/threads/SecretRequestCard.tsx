@@ -1,7 +1,7 @@
 import {
   SECRET_REQUEST_DEFAULT_PLACEHOLDER,
-  SECRET_REQUEST_PRIVACY_NOTE,
   secretRequestAnswerInput,
+  secretRequestCopy,
   secretRequestDisplay,
   secretRequestFailureMessage,
   type SecretRequestItem,
@@ -67,6 +67,7 @@ function PendingSecretRequestForm(props: {
   readonly iconColor: ColorValue;
 }) {
   const { item } = props;
+  const copy = secretRequestCopy(item);
   const answer = useAtomCommand(serverEnvironment.answerSecretRequest, {
     label: "answer secret request",
     // The failure cause holds the request; keep it out of the console.
@@ -137,7 +138,7 @@ function PendingSecretRequestForm(props: {
         </Text>
       ) : null}
       <RequestActionButton
-        label="Save securely"
+        label={copy.submitLabel}
         disabled={submitting || secret.trim().length === 0}
         onPress={() => void send({ type: "save", secret })}
       />
@@ -149,9 +150,7 @@ function PendingSecretRequestForm(props: {
             tintColor={props.iconColor}
             type="monochrome"
           />
-          <Text className="flex-1 font-sans text-xs text-foreground-muted">
-            {SECRET_REQUEST_PRIVACY_NOTE}
-          </Text>
+          <Text className="flex-1 font-sans text-xs text-foreground-muted">{copy.privacyNote}</Text>
         </View>
         {/* Quiet like the web card's: the field and Save are the action. */}
         <Pressable

@@ -1,6 +1,16 @@
 import * as Schema from "effect/Schema";
 
-import { ThreadId, TrimmedNonEmptyString, TurnItemId } from "./baseSchemas.ts";
+import { ThreadId, TurnItemId } from "./baseSchemas.ts";
+
+/**
+ * A typed secret, as typed. Not trimmed on the wire: a password's spaces are
+ * part of it. The server trims values it stores for an agent.
+ */
+const TypedSecret = Schema.String.check(
+  Schema.makeFilter((value: string) => value.trim().length > 0, {
+    expected: "a non-blank string",
+  }),
+);
 
 /**
  * The user's answer to an agent's request for a secret. A saved value is kept
@@ -10,11 +20,18 @@ export const SecretRequestAnswerInput = Schema.Struct({
   threadId: ThreadId,
   turnItemId: TurnItemId,
   answer: Schema.Union([
-    Schema.Struct({ type: Schema.Literal("save"), secret: TrimmedNonEmptyString }),
+    Schema.Struct({ type: Schema.Literal("save"), secret: TypedSecret }),
     Schema.Struct({ type: Schema.Literal("decline") }),
   ]),
 });
 export type SecretRequestAnswerInput = typeof SecretRequestAnswerInput.Type;
+
+/**
+ * Turn item id prefix of a password prompt that sudo or ssh raised through
+ * T3's askpass helper. The answer goes straight to the waiting command, never
+ * to the secret store, and clients word the card as a password prompt.
+ */
+export const ASKPASS_TURN_ITEM_PREFIX = "turn-item:askpass:";
 
 const SECRET_REQUEST_FAILURE_MESSAGES = {
   load_failed: "Could not load the secret request.",
