@@ -12,5 +12,9 @@ export function createShellEnvironmentAtoms<R, E>(
       label: "environment-data:shell:open-in-editor",
       tag: WS_METHODS.shellOpenInEditor,
     }),
+    typeInTmux: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:type-in-tmux",
+      tag: WS_METHODS.shellTypeInTmux,
+    }),
   };
 }

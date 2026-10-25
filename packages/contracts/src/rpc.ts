@@ -65,7 +65,13 @@ import {
   AcpRegistrySetProviderInput,
   AcpRegistrySetProviderResult,
 } from "./acpRegistry.ts";
-import { ExternalLauncherError, LaunchEditorInput } from "./editor.ts";
+import {
+  ExternalLauncherError,
+  LaunchEditorInput,
+  ShellTypeInTmuxError,
+  ShellTypeInTmuxInput,
+  ShellTypeInTmuxResult,
+} from "./editor.ts";
 import {
   AuthAccessStreamError,
   AuthAccessStreamEvent,
@@ -385,6 +391,7 @@ export const WS_METHODS = {
 
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
+  shellTypeInTmux: "shell.typeInTmux",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -1264,6 +1271,12 @@ const WsShellOpenInEditorRpc = Rpc.make(WS_METHODS.shellOpenInEditor, {
   error: Schema.Union([ExternalLauncherError, EnvironmentAuthorizationError]),
 });
 
+const WsShellTypeInTmuxRpc = Rpc.make(WS_METHODS.shellTypeInTmux, {
+  payload: ShellTypeInTmuxInput,
+  success: ShellTypeInTmuxResult,
+  error: Schema.Union([ShellTypeInTmuxError, EnvironmentAuthorizationError]),
+});
+
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
   payload: FilesystemGetMetadataInput,
   success: FilesystemGetMetadataResult,
@@ -1989,6 +2002,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsWriteFileRpc,
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
+  WsShellTypeInTmuxRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,
   WsAgentSessionsScanRpc,

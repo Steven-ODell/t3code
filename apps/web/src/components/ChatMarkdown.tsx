@@ -40,6 +40,7 @@ import {
   PlayIcon,
   PresentationIcon,
   SparklesIcon,
+  SquareTerminalIcon,
   TriangleAlertIcon,
   WorkflowIcon,
   WrapTextIcon,
@@ -848,6 +849,7 @@ function MarkdownCodeBlock({
   fenceTitle,
   theme,
   onRunShellCommand,
+  onTypeInTmux,
   isStreaming,
   viewToggle,
   canWrap = true,
@@ -859,6 +861,7 @@ function MarkdownCodeBlock({
   fenceTitle: string | null;
   theme: "light" | "dark";
   onRunShellCommand?: ((command: string) => void) | undefined;
+  onTypeInTmux?: ((command: string) => void) | undefined;
   isStreaming: boolean;
   /** Switches between source and rendered content; sits left of copy in both views. */
   viewToggle?: ReactNode;
@@ -873,16 +876,24 @@ function MarkdownCodeBlock({
   const wrapLabel = wrapped ? "Disable line wrap" : "Wrap lines";
   const copyLabel = copied ? "Copied" : "Copy code";
   const command = code.trim();
-  const canRun =
-    onRunShellCommand !== undefined &&
+  const isClosedShellBlock =
     !isStreaming &&
     /^(?:sh|bash|zsh|fish|shell|powershell|pwsh)$/.test(language) &&
     code.endsWith("\n") &&
-    command.length > 0 &&
+    command.length > 0;
+  const canRun =
+    onRunShellCommand !== undefined &&
+    isClosedShellBlock &&
     !command.endsWith("\\") &&
     // Control and invisible format characters (bidi overrides, zero-width) can
     // make the rendered command differ from what the terminal would receive.
     !/[\p{Cc}\p{Cf}]/u.test(code.slice(0, -1));
+  // tmux gets the block as one bracketed paste and never runs it, so newlines
+  // and tabs are fine there; other hidden characters are still refused.
+  const canTypeInTmux =
+    onTypeInTmux !== undefined &&
+    isClosedShellBlock &&
+    !/[\p{Cc}\p{Cf}]/u.test(code.slice(0, -1).replace(/[\n\t]/g, ""));
 
   const handleCopy = useCallback(() => {
     if (typeof navigator === "undefined" || navigator.clipboard == null) {
@@ -1000,6 +1011,24 @@ function MarkdownCodeBlock({
                 <PlayIcon className="size-3" />
               </TooltipTrigger>
               <TooltipPopup side="top">Run in terminal</TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {canTypeInTmux ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    type="button"
+                    variant="ghost-muted"
+                    size="icon-xs"
+                    onClick={() => onTypeInTmux(command)}
+                    aria-label="Type in tmux"
+                  />
+                }
+              >
+                <SquareTerminalIcon className="size-3" />
+              </TooltipTrigger>
+              <TooltipPopup side="top">Type in tmux (T3 session, not run)</TooltipPopup>
             </Tooltip>
           ) : null}
           {viewToggle}
@@ -2419,6 +2448,39 @@ function useChatMarkdownState({
   const openInEditor = useAtomCommand(shellEnvironment.openInEditor, {
     reportFailure: false,
   });
+  const typeInTmuxCommand = useAtomCommand(shellEnvironment.typeInTmux, {
+    reportFailure: false,
+  });
+  // Sao's fork: types a shell block into a new window of tmux session T3 on
+  // the server's machine, unrun, through the `tcmd` script.
+  const typeInTmux = useMemo(() => {
+    if (environmentId === null || !canOperateHost || !cwd) return undefined;
+    return (command: string) => {
+      void (async () => {
+        const result = await typeInTmuxCommand({ environmentId, input: { cwd, command } });
+        if (isAtomCommandInterrupted(result)) return;
+        if (result._tag === "Success") {
+          toastManager.add(
+            stackedThreadToast({
+              type: "success",
+              title: `Typed into tmux ${result.value.target}`,
+              description: "Not run yet. Press Enter there to run it.",
+            }),
+          );
+          return;
+        }
+        reportMarkdownActionFailure({ operation: "type-in-tmux" }, result.cause);
+        const error = squashAtomCommandFailure(result);
+        toastManager.add(
+          stackedThreadToast({
+            type: "error",
+            title: "Could not type into tmux",
+            description: error instanceof Error ? error.message : "An error occurred.",
+          }),
+        );
+      })();
+    };
+  }, [canOperateHost, cwd, environmentId, typeInTmuxCommand]);
   const revealInFileManagerLabel =
     environmentId !== null &&
     serverConfig?.shellRevealInFileManager === true &&
@@ -2754,6 +2816,7 @@ function useChatMarkdownState({
       onTaskListChange,
       onUseArtifactTemplate,
       onRunShellCommand,
+      typeInTmux,
       openChangeRequestLink,
       openDeferredMarkdownLink,
       openExternalLinkInPreview,
@@ -2787,6 +2850,7 @@ function useChatMarkdownState({
       onTaskListChange,
       onUseArtifactTemplate,
       onRunShellCommand,
+      typeInTmux,
       openChangeRequestLink,
       openDeferredMarkdownLink,
       openExternalLinkInPreview,
@@ -3364,9 +3428,15 @@ const CHAT_MARKDOWN_COMPONENTS = {
     return <MarkdownDetails open={detailsOpen}>{children}</MarkdownDetails>;
   },
   pre: function MarkdownPre({ node, children, ...props }) {
-    const { resolvedTheme, diffThemeName, expandMedia, isStreaming, onRunShellCommand, text } = use(
-      ChatMarkdownRendererContext,
-    );
+    const {
+      resolvedTheme,
+      diffThemeName,
+      expandMedia,
+      isStreaming,
+      onRunShellCommand,
+      typeInTmux,
+      text,
+    } = use(ChatMarkdownRendererContext);
     const codeBlock = extractCodeBlock(children);
     if (!codeBlock) {
       return <pre {...props}>{children}</pre>;
@@ -3420,6 +3490,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
           onRunShellCommand && !isStreaming && isClosedCodeFence(node, text)
             ? onRunShellCommand
             : undefined
+        }
+        onTypeInTmux={
+          typeInTmux && !isStreaming && isClosedCodeFence(node, text) ? typeInTmux : undefined
         }
         isStreaming={isStreaming}
       >

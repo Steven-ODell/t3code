@@ -176,6 +176,29 @@ export const LaunchEditorInput = Schema.Struct({
 });
 export type LaunchEditorInput = typeof LaunchEditorInput.Type;
 
+/** Sao's fork: type a chat code block into a new window of tmux session T3
+    (via the `tcmd` script) without running it. */
+export const ShellTypeInTmuxInput = Schema.Struct({
+  cwd: TrimmedNonEmptyString,
+  command: TrimmedNonEmptyString,
+});
+export type ShellTypeInTmuxInput = typeof ShellTypeInTmuxInput.Type;
+
+export const ShellTypeInTmuxResult = Schema.Struct({
+  /** Where it landed, e.g. "T3:4". */
+  target: Schema.String,
+});
+export type ShellTypeInTmuxResult = typeof ShellTypeInTmuxResult.Type;
+
+export class ShellTypeInTmuxError extends Schema.TaggedError<ShellTypeInTmuxError>()(
+  "ShellTypeInTmuxError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return `Could not type the command into tmux: ${this.detail}`;
+  }
+}
+
 const remoteSchemeOf = (editor: EditorDefinition): string | undefined =>
   editor.remoteScheme ?? (editor.jetbrainsProductCode === undefined ? undefined : "jetbrains");
 
