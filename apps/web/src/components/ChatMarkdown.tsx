@@ -3270,9 +3270,10 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
   code: function MarkdownCode({ node, children, className, ...props }) {
-    const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip } = use(
+    const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip, typeInTmux } = use(
       ChatMarkdownRendererContext,
     );
+    const insideLink = use(MarkdownLinkContext);
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
       const fileLinkMeta =
@@ -3283,6 +3284,36 @@ const CHAT_MARKDOWN_COMPONENTS = {
           fileLinkMeta,
           `\`${codeText}\``,
           inlineCodeFilePathCandidate(codeText) ?? codeText.trim(),
+        );
+      }
+      // Sao's fork: any other inline code is clickable and gets typed, unrun,
+      // into a new window of tmux session T3.
+      const command = codeText.trim();
+      if (typeInTmux && !insideLink && command.length > 0) {
+        const send = () => {
+          // Dragging to select text inside the chip is not a click.
+          if (window.getSelection()?.toString()) return;
+          typeInTmux(command);
+        };
+        return (
+          <code
+            {...props}
+            className={cn(
+              className,
+              "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
+            )}
+            role="button"
+            tabIndex={0}
+            onClick={send}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                send();
+              }
+            }}
+          >
+            {children}
+          </code>
         );
       }
     }
