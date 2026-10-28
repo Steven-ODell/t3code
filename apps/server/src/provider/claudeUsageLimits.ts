@@ -127,6 +127,32 @@ function makeWindow(
 }
 
 /**
+ * Every window's numbers, which newer CLIs attach to each event as
+ * `unifiedWindows` (not in the SDK's types). The top-level `utilization` only
+ * shows up once a window passes a warning threshold, so most events carry
+ * their numbers here alone.
+ */
+function readUnifiedWindows(info: SDKRateLimitInfo): ServerProviderUsageWindow[] {
+  const unified: unknown = (info as { unifiedWindows?: unknown }).unifiedWindows;
+  if (typeof unified !== "object" || unified === null) return [];
+  const windows: ServerProviderUsageWindow[] = [];
+  for (const id of Object.keys(WINDOWS)) {
+    const entry: unknown = (unified as Record<string, unknown>)[id];
+    if (typeof entry !== "object" || entry === null) continue;
+    const { utilization, resetsAt } = entry as { utilization?: unknown; resetsAt?: unknown };
+    if (typeof utilization !== "number") continue;
+    windows.push(
+      makeWindow(
+        id,
+        utilization * 100,
+        isoFromEpochSeconds(typeof resetsAt === "number" ? resetsAt : undefined),
+      ),
+    );
+  }
+  return windows;
+}
+
+/**
  * Utilization is a 0–1 fraction on the streamed event. An overage-included
  * event before any probe has named the bucket is dropped: guessing a name
  * would draw a row the next probe cannot reconcile.
@@ -135,6 +161,10 @@ export function claudeRateLimitEventToUpdate(
   info: SDKRateLimitInfo,
   names: ClaudeScopedLimitNames,
 ): ProviderUsageLimitsUpdate | undefined {
+  const unified = readUnifiedWindows(info);
+  if (unified.length > 0) {
+    return { windows: unified };
+  }
   const type: string | undefined = info.rateLimitType;
   if (!type || typeof info.utilization !== "number") {
     return undefined;
