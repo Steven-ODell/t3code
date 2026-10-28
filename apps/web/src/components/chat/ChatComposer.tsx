@@ -53,7 +53,10 @@ import {
   PROVIDER_WORKSPACE_SNAPSHOT_TTL_MS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
-import { squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
+import {
+  isAtomCommandInterrupted,
+  squashAtomCommandFailure,
+} from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import {
   isPasteAsTextShortcut,
@@ -1103,6 +1106,7 @@ import { toastManager } from "../ui/toast";
 import {
   FileIcon,
   BotIcon,
+  MicIcon,
   CircleAlertIcon,
   PaperclipIcon,
   PencilRulerIcon,
@@ -1159,8 +1163,9 @@ import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePanelAnimationSettings } from "../../panelAnimations";
 import { useAtomCommand } from "../../state/use-atom-command";
-import { readEnvironmentScope } from "../../state/session";
+import { readEnvironmentScope, useEnvironmentScope } from "../../state/session";
 import { serverEnvironment } from "../../state/server";
+import { shellEnvironment } from "../../state/shell";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 
 const WORKSPACE_SNAPSHOT_RETRY_COOLDOWN_MS = 10_000;
@@ -2280,6 +2285,36 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const refreshProviders = useAtomCommand(serverEnvironment.refreshProviders, {
     reportFailure: false,
   });
+  // Sao's fork: the mic button runs the server machine's `dictate` script
+  // (SUPER + D). voxtype types into the focused window, so focus stays here.
+  // Enter while recording stops dictation instead of sending.
+  const canOperateHost = useEnvironmentScope(environmentId, AuthOrchestrationOperateScope);
+  const toggleDictationCommand = useAtomCommand(shellEnvironment.toggleDictation, {
+    reportFailure: false,
+  });
+  const [isDictating, setIsDictating] = useState(false);
+  const isDictatingRef = useRef(false);
+  const toggleDictation = (action: "toggle" | "stop") => {
+    void (async () => {
+      const result = await toggleDictationCommand({ environmentId, input: { action } });
+      if (isAtomCommandInterrupted(result)) return;
+      if (result._tag === "Success") {
+        isDictatingRef.current = result.value.recording;
+        setIsDictating(result.value.recording);
+        return;
+      }
+      isDictatingRef.current = false;
+      setIsDictating(false);
+      toastManager.add({
+        type: "error",
+        title: "Could not toggle dictation",
+        description: (() => {
+          const error = squashAtomCommandFailure(result);
+          return error instanceof Error ? error.message : "An error occurred.";
+        })(),
+      });
+    })();
+  };
   // The last scan this composer asked for. A request inside the TTL is not
   // repeated, so a client clock ahead of the server's cannot loop rescans.
   const workspaceRefreshKeyRef = useRef<{ key: string; requestedAt: number } | null>(null);
@@ -4396,6 +4431,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       sendShortcut: settings.sendShortcut,
       prompt: promptRef.current,
     });
+    if (key === "Enter" && isDictatingRef.current && submissionIntent !== null) {
+      isDictatingRef.current = false;
+      setIsDictating(false);
+      toggleDictation("stop");
+      return true;
+    }
     if (key === "Tab" && event.shiftKey && submissionIntent === null) {
       if (!planModeUiEnabled) return false;
       toggleInteractionMode();
@@ -7593,6 +7634,31 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         <TooltipPopup>Attach files</TooltipPopup>
                       </Tooltip>
                     </>
+                  ) : null}
+                  {canOperateHost ? (
+                    <Tooltip>
+                      <TooltipTrigger
+                        render={
+                          <Button
+                            type="button"
+                            variant={isDictating ? "destructive-outline" : "ghost"}
+                            size="icon-sm"
+                            onPointerDown={(event) => event.preventDefault()}
+                            onClick={() => {
+                              focusComposer();
+                              toggleDictation("toggle");
+                            }}
+                            aria-label={isDictating ? "Stop dictation" : "Dictate"}
+                            aria-pressed={isDictating}
+                          />
+                        }
+                      >
+                        <MicIcon />
+                      </TooltipTrigger>
+                      <TooltipPopup>
+                        {isDictating ? "Stop dictation (Enter)" : "Dictate (SUPER + D)"}
+                      </TooltipPopup>
+                    </Tooltip>
                   ) : null}
                   <ComposerFooterPrimaryActions
                     compact={isComposerResting || isComposerPrimaryActionsCompact}

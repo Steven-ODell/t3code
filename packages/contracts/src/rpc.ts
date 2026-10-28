@@ -71,6 +71,9 @@ import {
   ShellTypeInTmuxError,
   ShellTypeInTmuxInput,
   ShellTypeInTmuxResult,
+  ShellToggleDictationError,
+  ShellToggleDictationInput,
+  ShellToggleDictationResult,
 } from "./editor.ts";
 import {
   AuthAccessStreamError,
@@ -392,6 +395,7 @@ export const WS_METHODS = {
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
   shellTypeInTmux: "shell.typeInTmux",
+  shellToggleDictation: "shell.toggleDictation",
 
   // Filesystem methods
   filesystemBrowse: "filesystem.browse",
@@ -1277,6 +1281,12 @@ const WsShellTypeInTmuxRpc = Rpc.make(WS_METHODS.shellTypeInTmux, {
   error: Schema.Union([ShellTypeInTmuxError, EnvironmentAuthorizationError]),
 });
 
+const WsShellToggleDictationRpc = Rpc.make(WS_METHODS.shellToggleDictation, {
+  payload: ShellToggleDictationInput,
+  success: ShellToggleDictationResult,
+  error: Schema.Union([ShellToggleDictationError, EnvironmentAuthorizationError]),
+});
+
 const WsFilesystemGetMetadataRpc = Rpc.make(WS_METHODS.filesystemGetMetadata, {
   payload: FilesystemGetMetadataInput,
   success: FilesystemGetMetadataResult,
@@ -2003,6 +2013,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsShellTypeInTmuxRpc,
+  WsShellToggleDictationRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,
   WsAgentSessionsScanRpc,

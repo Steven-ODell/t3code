@@ -358,3 +358,25 @@ export const ExternalLauncherError = Schema.Union([
   ExternalLauncherEditorSpawnError,
 ]);
 export type ExternalLauncherError = typeof ExternalLauncherError.Type;
+
+/** Sao's fork: start or stop voice dictation (the `dictate` script, same as
+    SUPER + D). "stop" does nothing unless dictation is recording. */
+export const ShellToggleDictationInput = Schema.Struct({
+  action: Schema.Literals(["toggle", "stop"]),
+});
+export type ShellToggleDictationInput = typeof ShellToggleDictationInput.Type;
+
+export const ShellToggleDictationResult = Schema.Struct({
+  /** Whether dictation is recording after this call. */
+  recording: Schema.Boolean,
+});
+export type ShellToggleDictationResult = typeof ShellToggleDictationResult.Type;
+
+export class ShellToggleDictationError extends Schema.TaggedError<ShellToggleDictationError>()(
+  "ShellToggleDictationError",
+  { detail: Schema.String },
+) {
+  override get message(): string {
+    return `Could not toggle dictation: ${this.detail}`;
+  }
+}
