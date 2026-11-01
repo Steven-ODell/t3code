@@ -119,6 +119,7 @@ import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import * as TmuxTyper from "./process/tmuxTyper.ts";
 import * as Dictation from "./process/dictation.ts";
+import { readRemoteAddressFromSource } from "./auth/utils.ts";
 import * as ThreadManagementService from "./orchestration-v2/ThreadManagementService.ts";
 import * as McpAppRequests from "./mcpApps/McpAppRequests.ts";
 import * as ProviderSessionManager from "./orchestration-v2/ProviderSessionManager.ts";
@@ -1206,6 +1207,7 @@ const layerWsRpc = (
   clientAnalyticsProps: Readonly<Record<string, unknown>>,
   previewAutomationBroker: PreviewAutomationBroker.PreviewAutomationBroker["Service"],
   serverBrowser: ServerBrowser.ServerBrowser["Service"],
+  dictationTarget: Dictation.DictationTarget,
 ) =>
   ServerWsRpcGroup.toLayer(
     Effect.gen(function* () {
@@ -2723,7 +2725,9 @@ const layerWsRpc = (
         [WS_METHODS.shellTypeInTmux]: (input) =>
           TmuxTyper.typeInTmux(input).pipe(Effect.provideContext(tmuxTyperContext)),
         [WS_METHODS.shellToggleDictation]: (input) =>
-          Dictation.toggleDictation(input).pipe(Effect.provideContext(tmuxTyperContext)),
+          Dictation.toggleDictation(input, dictationTarget).pipe(
+            Effect.provideContext(tmuxTyperContext),
+          ),
         [WS_METHODS.filesystemGetMetadata]: (input) => workspaceFileSystem.getMetadata(input),
         [WS_METHODS.filesystemBrowse]: (input) =>
           workspaceEntries.browse(input).pipe(
@@ -3211,6 +3215,10 @@ export const layer = Layer.unwrap(
         );
         const clientOrigin = readClientConnectionOrigin(request);
         const clientAnalyticsProps = readClientAnalyticsProps(request);
+        const dictationTarget = Dictation.resolveDictationTarget({
+          socketAddress: readRemoteAddressFromSource(request.source),
+          forwardedFor: request.headers["x-forwarded-for"],
+        });
         yield* sessions.recordClientConnection(session.sessionId, clientOrigin);
         yield* analytics.record("client.connected", clientAnalyticsProps);
         const rpcWebSocketHttpEffect = yield* Effect.gen(function* () {
@@ -3232,6 +3240,7 @@ export const layer = Layer.unwrap(
               clientAnalyticsProps,
               previewAutomationBroker,
               serverBrowser,
+              dictationTarget,
             ).pipe(
               Layer.provideMerge(RpcSerialization.layerJson),
               // Request fibers run in the handlers' context, so this reporter sees
