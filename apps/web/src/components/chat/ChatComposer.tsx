@@ -1159,6 +1159,11 @@ import {
 } from "@t3tools/client-runtime/providerSkills";
 import { searchProviderSkills } from "../../providerSkillSearch";
 import { useDelayedStatus } from "../../hooks/useDelayedStatus";
+import {
+  dictationPrefix,
+  isBrowserDictationSupported,
+  useBrowserDictation,
+} from "../../hooks/useBrowserDictation";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useStableCallback } from "../../hooks/useStableCallback";
 import { usePanelAnimationSettings } from "../../panelAnimations";
@@ -2315,6 +2320,40 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       });
     })();
   };
+  // On a phone the mic transcribes in the browser instead (Google's recognizer
+  // on Android Chrome). Dictated text owns one range at the end of the draft
+  // and is rewritten as interim results firm up; an edit to the draft before
+  // it ends the session.
+  const prefersBrowserDictation =
+    useMediaQuery({ pointer: "coarse" }) && isBrowserDictationSupported();
+  const browserDictationRangeRef = useRef<{ start: number; prefix: string; text: string } | null>(
+    null,
+  );
+  const browserDictation = useBrowserDictation({
+    onStart: () => {
+      const draft = promptRef.current;
+      browserDictationRangeRef.current = {
+        start: draft.length,
+        prefix: dictationPrefix(draft),
+        text: "",
+      };
+      if (isComposerCollapsedMobile) expandMobileComposer();
+    },
+    onTranscript: (transcript) => {
+      const range = browserDictationRangeRef.current;
+      if (!range) return false;
+      const text = range.prefix + transcript;
+      const placed = applyPromptReplacement(range.start, range.start + range.text.length, text, {
+        expectedText: range.text,
+        focusEditorAfterReplace: false,
+      });
+      if (placed) range.text = text;
+      return placed;
+    },
+    onError: (message) => {
+      toastManager.add({ type: "error", title: "Dictation stopped", description: message });
+    },
+  });
   // The last scan this composer asked for. A request inside the TTL is not
   // repeated, so a client clock ahead of the server's cannot loop rescans.
   const workspaceRefreshKeyRef = useRef<{ key: string; requestedAt: number } | null>(null);
@@ -4431,6 +4470,10 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       sendShortcut: settings.sendShortcut,
       prompt: promptRef.current,
     });
+    if (key === "Enter" && browserDictation.isListening && submissionIntent !== null) {
+      browserDictation.stop();
+      return true;
+    }
     if (key === "Enter" && isDictatingRef.current && submissionIntent !== null) {
       isDictatingRef.current = false;
       setIsDictating(false);
@@ -7635,7 +7678,19 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                       </Tooltip>
                     </>
                   ) : null}
-                  {canOperateHost ? (
+                  {prefersBrowserDictation ? (
+                    <Button
+                      type="button"
+                      variant={browserDictation.isListening ? "destructive-outline" : "ghost"}
+                      size="icon-sm"
+                      onPointerDown={(event) => event.preventDefault()}
+                      onClick={browserDictation.toggle}
+                      aria-label={browserDictation.isListening ? "Stop dictation" : "Dictate"}
+                      aria-pressed={browserDictation.isListening}
+                    >
+                      <MicIcon />
+                    </Button>
+                  ) : canOperateHost ? (
                     <Tooltip>
                       <TooltipTrigger
                         render={
