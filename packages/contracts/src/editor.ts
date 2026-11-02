@@ -199,6 +199,46 @@ export class ShellTypeInTmuxError extends Schema.TaggedError<ShellTypeInTmuxErro
   }
 }
 
+/** Sao's fork: send a file to the phone's Downloads (`phonepush`, Taildrop) or
+    text to its clipboard (`phoneclip`, via the Claude Assist hub). */
+export const SHELL_SEND_TO_PHONE_TEXT_MAX_LENGTH = 20_000;
+
+export const ShellSendToPhoneInput = Schema.Union([
+  Schema.Struct({
+    kind: Schema.Literal("file"),
+    path: TrimmedNonEmptyString,
+  }),
+  Schema.Struct({
+    kind: Schema.Literal("text"),
+    // Not trimmed: code blocks keep their indentation.
+    text: Schema.String.check(
+      Schema.isMinLength(1),
+      Schema.isMaxLength(SHELL_SEND_TO_PHONE_TEXT_MAX_LENGTH),
+    ),
+  }),
+]);
+export type ShellSendToPhoneInput = typeof ShellSendToPhoneInput.Type;
+
+export const ShellSendToPhoneResult = Schema.Struct({
+  kind: Schema.Literals(["file", "text"]),
+  /** What the script printed, e.g. "sent to the phone (12 chars)". */
+  detail: Schema.String,
+});
+export type ShellSendToPhoneResult = typeof ShellSendToPhoneResult.Type;
+
+export class ShellSendToPhoneError extends Schema.TaggedError<ShellSendToPhoneError>()(
+  "ShellSendToPhoneError",
+  {
+    detail: Schema.String,
+    /** phoneclip exit 3: the hub has no phone connected. */
+    notConnected: Schema.optional(Schema.Boolean),
+  },
+) {
+  override get message(): string {
+    return `Could not send to the phone: ${this.detail}`;
+  }
+}
+
 const remoteSchemeOf = (editor: EditorDefinition): string | undefined =>
   editor.remoteScheme ?? (editor.jetbrainsProductCode === undefined ? undefined : "jetbrains");
 

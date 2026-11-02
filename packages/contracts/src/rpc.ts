@@ -68,6 +68,9 @@ import {
 import {
   ExternalLauncherError,
   LaunchEditorInput,
+  ShellSendToPhoneError,
+  ShellSendToPhoneInput,
+  ShellSendToPhoneResult,
   ShellTypeInTmuxError,
   ShellTypeInTmuxInput,
   ShellTypeInTmuxResult,
@@ -395,6 +398,7 @@ export const WS_METHODS = {
   // Shell methods
   shellOpenInEditor: "shell.openInEditor",
   shellTypeInTmux: "shell.typeInTmux",
+  shellSendToPhone: "shell.sendToPhone",
   shellToggleDictation: "shell.toggleDictation",
 
   // Filesystem methods
@@ -1281,6 +1285,12 @@ const WsShellTypeInTmuxRpc = Rpc.make(WS_METHODS.shellTypeInTmux, {
   error: Schema.Union([ShellTypeInTmuxError, EnvironmentAuthorizationError]),
 });
 
+const WsShellSendToPhoneRpc = Rpc.make(WS_METHODS.shellSendToPhone, {
+  payload: ShellSendToPhoneInput,
+  success: ShellSendToPhoneResult,
+  error: Schema.Union([ShellSendToPhoneError, EnvironmentAuthorizationError]),
+});
+
 const WsShellToggleDictationRpc = Rpc.make(WS_METHODS.shellToggleDictation, {
   payload: ShellToggleDictationInput,
   success: ShellToggleDictationResult,
@@ -2013,6 +2023,7 @@ export const WsRpcGroup = RpcGroup.make(
   WsProjectsMutateRpc,
   WsShellOpenInEditorRpc,
   WsShellTypeInTmuxRpc,
+  WsShellSendToPhoneRpc,
   WsShellToggleDictationRpc,
   WsFilesystemBrowseRpc,
   WsFilesystemGetMetadataRpc,

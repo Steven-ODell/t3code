@@ -117,6 +117,7 @@ import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
+import * as PhoneSender from "./process/phoneSender.ts";
 import * as TmuxTyper from "./process/tmuxTyper.ts";
 import * as Dictation from "./process/dictation.ts";
 import { readRemoteAddressFromSource } from "./auth/utils.ts";
@@ -2724,6 +2725,8 @@ const layerWsRpc = (
         [WS_METHODS.shellOpenInEditor]: (input) => externalLauncher.launchEditor(input),
         [WS_METHODS.shellTypeInTmux]: (input) =>
           TmuxTyper.typeInTmux(input).pipe(Effect.provideContext(tmuxTyperContext)),
+        [WS_METHODS.shellSendToPhone]: (input) =>
+          PhoneSender.sendToPhone(input).pipe(Effect.provideContext(tmuxTyperContext)),
         [WS_METHODS.shellToggleDictation]: (input) =>
           Dictation.toggleDictation(input, dictationTarget).pipe(
             Effect.provideContext(tmuxTyperContext),

@@ -16,6 +16,10 @@ export function createShellEnvironmentAtoms<R, E>(
       label: "environment-data:shell:type-in-tmux",
       tag: WS_METHODS.shellTypeInTmux,
     }),
+    sendToPhone: createEnvironmentRpcCommand(runtime, {
+      label: "environment-data:shell:send-to-phone",
+      tag: WS_METHODS.shellSendToPhone,
+    }),
     toggleDictation: createEnvironmentRpcCommand(runtime, {
       label: "environment-data:shell:toggle-dictation",
       tag: WS_METHODS.shellToggleDictation,
