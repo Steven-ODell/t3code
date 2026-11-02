@@ -108,6 +108,7 @@ import { parseComposerContextHref } from "@t3tools/shared/composerContextReferen
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
+import { SendToPhoneButton, useSendToPhone, type SendToPhone } from "./chat/SendToPhoneButton";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import {
   artifactTemplateFromHastProperties,
@@ -850,6 +851,7 @@ function MarkdownCodeBlock({
   theme,
   onRunShellCommand,
   onTypeInTmux,
+  onSendToPhone,
   isStreaming,
   viewToggle,
   canWrap = true,
@@ -862,6 +864,7 @@ function MarkdownCodeBlock({
   theme: "light" | "dark";
   onRunShellCommand?: ((command: string) => void) | undefined;
   onTypeInTmux?: ((command: string) => void) | undefined;
+  onSendToPhone?: SendToPhone | undefined;
   isStreaming: boolean;
   /** Switches between source and rendered content; sits left of copy in both views. */
   viewToggle?: ReactNode;
@@ -894,6 +897,9 @@ function MarkdownCodeBlock({
     onTypeInTmux !== undefined &&
     isClosedShellBlock &&
     !/[\p{Cc}\p{Cf}]/u.test(code.slice(0, -1).replace(/[\n\t]/g, ""));
+  const phoneText = code.replace(/\n$/, "");
+  const phoneInput = useMemo(() => ({ kind: "text" as const, text: phoneText }), [phoneText]);
+  const canSendToPhone = onSendToPhone !== undefined && !isStreaming && command.length > 0;
 
   const handleCopy = useCallback(() => {
     if (typeof navigator === "undefined" || navigator.clipboard == null) {
@@ -1031,6 +1037,7 @@ function MarkdownCodeBlock({
               <TooltipPopup side="top">Type in tmux (T3 session, not run)</TooltipPopup>
             </Tooltip>
           ) : null}
+          {canSendToPhone ? <SendToPhoneButton input={phoneInput} send={onSendToPhone} /> : null}
           {viewToggle}
           {copyButton}
         </span>
@@ -2481,6 +2488,7 @@ function useChatMarkdownState({
       })();
     };
   }, [canOperateHost, cwd, environmentId, typeInTmuxCommand]);
+  const sendToPhone = useSendToPhone(environmentId, canOperateHost);
   const revealInFileManagerLabel =
     environmentId !== null &&
     serverConfig?.shellRevealInFileManager === true &&
@@ -2817,6 +2825,7 @@ function useChatMarkdownState({
       onUseArtifactTemplate,
       onRunShellCommand,
       typeInTmux,
+      sendToPhone,
       openChangeRequestLink,
       openDeferredMarkdownLink,
       openExternalLinkInPreview,
@@ -2851,6 +2860,7 @@ function useChatMarkdownState({
       onUseArtifactTemplate,
       onRunShellCommand,
       typeInTmux,
+      sendToPhone,
       openChangeRequestLink,
       openDeferredMarkdownLink,
       openExternalLinkInPreview,
@@ -3466,6 +3476,7 @@ const CHAT_MARKDOWN_COMPONENTS = {
       isStreaming,
       onRunShellCommand,
       typeInTmux,
+      sendToPhone,
       text,
     } = use(ChatMarkdownRendererContext);
     const codeBlock = extractCodeBlock(children);
@@ -3524,6 +3535,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
         }
         onTypeInTmux={
           typeInTmux && !isStreaming && isClosedCodeFence(node, text) ? typeInTmux : undefined
+        }
+        onSendToPhone={
+          sendToPhone && !isStreaming && isClosedCodeFence(node, text) ? sendToPhone : undefined
         }
         isStreaming={isStreaming}
       >
