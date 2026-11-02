@@ -8,7 +8,7 @@ import {
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
 import { CheckIcon, LoaderCircleIcon, XIcon } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { shellEnvironment } from "../../state/shell";
 import { useAtomCommand } from "../../state/use-atom-command";
@@ -72,7 +72,7 @@ export function useSendToPhone(
   }, [canOperateHost, environmentId, sendToPhoneCommand]);
 }
 
-/** idle -> sending -> sent | failed -> idle after SEND_TO_PHONE_RESULT_MS. Clicks while busy are ignored. */
+/** idle -> sending -> sent | failed -> idle after SEND_TO_PHONE_RESULT_MS. Clicks while busy are ignored (trigger returns false). */
 export function useSendToPhoneState(send: () => Promise<SendToPhoneOutcome | null>) {
   const [state, setState] = useState<SendToPhoneState>({ status: "idle" });
   const busyRef = useRef(false);
@@ -87,35 +87,40 @@ export function useSendToPhoneState(send: () => Promise<SendToPhoneOutcome | nul
     };
   }, []);
 
-  const trigger = useCallback(() => {
-    if (busyRef.current) return;
-    busyRef.current = true;
-    setState({ status: "sending" });
-    const finish = (next: SendToPhoneState) => {
-      if (!mountedRef.current) return;
-      setState(next);
-      if (next.status === "idle") {
-        busyRef.current = false;
-        return;
-      }
-      resetTimerRef.current = setTimeout(() => {
-        resetTimerRef.current = null;
-        busyRef.current = false;
-        setState({ status: "idle" });
-      }, SEND_TO_PHONE_RESULT_MS);
-    };
-    send().then(
-      (outcome) =>
-        finish(
-          outcome === null
-            ? { status: "idle" }
-            : outcome.ok
-              ? { status: "sent" }
-              : { status: "failed", message: outcome.message },
-        ),
-      (error: unknown) => finish({ status: "failed", message: sendToPhoneFailureMessage(error) }),
-    );
-  }, [send]);
+  /** `run` overrides `send` for this one request (a menu item sending something else). */
+  const trigger = useCallback(
+    (run: () => Promise<SendToPhoneOutcome | null> = send): boolean => {
+      if (busyRef.current) return false;
+      busyRef.current = true;
+      setState({ status: "sending" });
+      const finish = (next: SendToPhoneState) => {
+        if (!mountedRef.current) return;
+        setState(next);
+        if (next.status === "idle") {
+          busyRef.current = false;
+          return;
+        }
+        resetTimerRef.current = setTimeout(() => {
+          resetTimerRef.current = null;
+          busyRef.current = false;
+          setState({ status: "idle" });
+        }, SEND_TO_PHONE_RESULT_MS);
+      };
+      run().then(
+        (outcome) =>
+          finish(
+            outcome === null
+              ? { status: "idle" }
+              : outcome.ok
+                ? { status: "sent" }
+                : { status: "failed", message: outcome.message },
+          ),
+        (error: unknown) => finish({ status: "failed", message: sendToPhoneFailureMessage(error) }),
+      );
+      return true;
+    },
+    [send],
+  );
 
   return { state, trigger };
 }
@@ -137,22 +142,32 @@ export function sendToPhoneLabel(kind: ShellSendToPhoneInput["kind"], state: Sen
 }
 
 /**
- * Phone icon button: phone-arrow for a file, phone-pencil for text. Shows a
- * spinner while sending, then a check or X. `data-phone-state` lets a hover
- * host keep it visible while it isn't idle.
+ * Holds a hover phone icon over the end of an inline chip, so showing it moves
+ * no text. The host needs `group/phone relative`. The icon shows while the host
+ * is hovered or focused, and stays while it is spinning or showing its result.
  */
-export function SendToPhoneButton({
-  input,
-  send,
-  className,
+export function SendToPhoneHoverSlot({ children }: { children: ReactNode }) {
+  return (
+    <span className="pointer-events-none absolute top-1/2 right-0 z-10 flex -translate-y-1/2 rounded-sm bg-popover opacity-0 shadow-xs transition-opacity group-hover/phone:pointer-events-auto group-hover/phone:opacity-100 group-focus-within/phone:pointer-events-auto group-focus-within/phone:opacity-100 has-[[data-phone-state]:not([data-phone-state=idle])]:pointer-events-auto has-[[data-phone-state]:not([data-phone-state=idle])]:opacity-100">
+      {children}
+    </span>
+  );
+}
+
+/** The icon button alone, for hosts that own the state (a chip whose menu sends too). */
+export function SendToPhoneIconButton({
+  kind,
+  state,
+  onTrigger,
+  size = "icon-xs",
 }: {
-  input: ShellSendToPhoneInput;
-  send: SendToPhone;
-  className?: string;
+  kind: ShellSendToPhoneInput["kind"];
+  state: SendToPhoneState;
+  onTrigger: () => void;
+  /** icon-tiny for hover icons on inline chips. */
+  size?: "icon-xs" | "icon-tiny";
 }) {
-  const sendInput = useCallback(() => send(input), [input, send]);
-  const { state, trigger } = useSendToPhoneState(sendInput);
-  const label = sendToPhoneLabel(input.kind, state);
+  const label = sendToPhoneLabel(kind, state);
   const iconClassName = "size-3";
   const icon =
     state.status === "sending" ? (
@@ -161,7 +176,7 @@ export function SendToPhoneButton({
       <CheckIcon aria-hidden className={`${iconClassName} text-success`} />
     ) : state.status === "failed" ? (
       <XIcon aria-hidden className={`${iconClassName} text-destructive`} />
-    ) : input.kind === "file" ? (
+    ) : kind === "file" ? (
       <PhoneDownloadIcon className={iconClassName} />
     ) : (
       <PhoneClipIcon className={iconClassName} />
@@ -173,13 +188,12 @@ export function SendToPhoneButton({
           <Button
             type="button"
             variant="ghost-muted"
-            size="icon-xs"
-            className={className}
+            size={size}
             data-phone-state={state.status}
             aria-busy={state.status === "sending"}
             onClick={(event) => {
               event.stopPropagation();
-              trigger();
+              onTrigger();
             }}
             aria-label={label}
           />
@@ -189,5 +203,31 @@ export function SendToPhoneButton({
       </TooltipTrigger>
       <TooltipPopup side="top">{label}</TooltipPopup>
     </Tooltip>
+  );
+}
+
+/**
+ * Phone icon button: phone-arrow for a file, phone-pencil for text. Shows a
+ * spinner while sending, then a check or X. `data-phone-state` lets a hover
+ * host keep it visible while it isn't idle.
+ */
+export function SendToPhoneButton({
+  input,
+  send,
+  size,
+}: {
+  input: ShellSendToPhoneInput;
+  send: SendToPhone;
+  size?: "icon-xs" | "icon-tiny";
+}) {
+  const sendInput = useCallback(() => send(input), [input, send]);
+  const { state, trigger } = useSendToPhoneState(sendInput);
+  return (
+    <SendToPhoneIconButton
+      kind={input.kind}
+      state={state}
+      onTrigger={() => trigger()}
+      {...(size ? { size } : {})}
+    />
   );
 }

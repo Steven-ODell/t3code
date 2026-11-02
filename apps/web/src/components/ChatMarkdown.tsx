@@ -108,7 +108,14 @@ import { parseComposerContextHref } from "@t3tools/shared/composerContextReferen
 import { parseThreadLinkHref } from "@t3tools/shared/threadLinks";
 import { AssistantCitationChip } from "./chat/AssistantCitationChip";
 import { MarkdownThreadLink } from "./chat/MarkdownThreadLink";
-import { SendToPhoneButton, useSendToPhone, type SendToPhone } from "./chat/SendToPhoneButton";
+import {
+  SendToPhoneButton,
+  SendToPhoneHoverSlot,
+  SendToPhoneIconButton,
+  useSendToPhone,
+  useSendToPhoneState,
+  type SendToPhone,
+} from "./chat/SendToPhoneButton";
 import { isWindowsAbsolutePath } from "@t3tools/shared/path";
 import {
   artifactTemplateFromHastProperties,
@@ -1256,6 +1263,8 @@ interface MarkdownFileLinkProps {
   /** Platform-specific menu label ("Reveal in Finder", ...); required for the
       reveal item to show. */
   revealLabel?: string | undefined;
+  /** Sao's fork: hover icon and menu items that send the file or its path to the phone. */
+  onSendToPhone?: SendToPhone | undefined;
 }
 
 const MARKDOWN_FILE_LINK_CLASS_NAME = "chat-markdown-file-link";
@@ -1984,6 +1993,28 @@ function MarkdownExternalLinkContent({
   );
 }
 
+/** Sao's fork: a hover phone-pencil icon on an inline chip that copies `text` to the phone. */
+function PhoneClipHost({
+  text,
+  send,
+  children,
+}: {
+  text: string;
+  send: SendToPhone | undefined;
+  children: ReactNode;
+}) {
+  const input = useMemo(() => ({ kind: "text", text }) as const, [text]);
+  if (!send) return children;
+  return (
+    <span className="group/phone relative">
+      {children}
+      <SendToPhoneHoverSlot>
+        <SendToPhoneButton input={input} send={send} size="icon-tiny" />
+      </SendToPhoneHoverSlot>
+    </span>
+  );
+}
+
 const MarkdownFileLink = memo(function MarkdownFileLink({
   environmentId,
   href,
@@ -2003,6 +2034,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   onOpenMedia,
   onReveal,
   revealLabel,
+  onSendToPhone,
 }: MarkdownFileLinkProps) {
   const handleOpenInEditor = useCallback(() => {
     if (!onOpen) {
@@ -2169,6 +2201,26 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     [targetPath],
   );
 
+  // One state for the hover icon and both menu items, so a send from the menu
+  // shows its spinner and result on the icon too. `iconPath` is the file
+  // without its :line suffix.
+  const sendFileToPhone = useCallback(
+    () => (onSendToPhone ? onSendToPhone({ kind: "file", path: iconPath }) : Promise.resolve(null)),
+    [iconPath, onSendToPhone],
+  );
+  const phoneSend = useSendToPhoneState(sendFileToPhone);
+  const [phoneSendKind, setPhoneSendKind] = useState<"file" | "text">("file");
+  const triggerPhoneSend = phoneSend.trigger;
+  const sendPathToPhone = useCallback(() => {
+    if (!onSendToPhone) return;
+    if (triggerPhoneSend(() => onSendToPhone({ kind: "text", text: iconPath }))) {
+      setPhoneSendKind("text");
+    }
+  }, [iconPath, onSendToPhone, triggerPhoneSend]);
+  const sendFileToPhoneNow = useCallback(() => {
+    if (triggerPhoneSend()) setPhoneSendKind("file");
+  }, [triggerPhoneSend]);
+
   const showFileContextMenu = useCallback(
     async (position: { x: number; y: number }) => {
       const api = readLocalApi();
@@ -2185,6 +2237,12 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
             ...(onReveal && revealLabel ? ([{ id: "reveal", label: revealLabel }] as const) : []),
             { id: "copy-relative", label: "Copy relative path" },
             { id: "copy-full", label: "Copy full path" },
+            ...(onSendToPhone
+              ? ([
+                  { id: "phone-file", label: "Send file to phone" },
+                  { id: "phone-path", label: "Copy path to phone clipboard" },
+                ] as const)
+              : []),
           ] as const,
           position,
         );
@@ -2211,6 +2269,14 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
         }
         if (clicked === "copy-full") {
           handleCopy(targetPath, "Full path");
+          return;
+        }
+        if (clicked === "phone-file") {
+          sendFileToPhoneNow();
+          return;
+        }
+        if (clicked === "phone-path") {
+          sendPathToPhone();
         }
       } catch (cause) {
         reportMarkdownActionFailure(
@@ -2229,8 +2295,11 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       onOpenMedia,
       onOpen,
       onReveal,
+      onSendToPhone,
       openInEditorMenuLabel,
       revealLabel,
+      sendFileToPhoneNow,
+      sendPathToPhone,
       targetPath,
     ],
   );
@@ -2267,7 +2336,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
     canOpenInPanel,
   });
 
-  return (
+  const chip = (
     <Tooltip>
       <TooltipTrigger
         render={
@@ -2329,6 +2398,20 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       </TooltipPopup>
     </Tooltip>
   );
+  if (!onSendToPhone) return chip;
+  return (
+    <span className="group/phone relative">
+      {chip}
+      <SendToPhoneHoverSlot>
+        <SendToPhoneIconButton
+          kind={phoneSendKind}
+          state={phoneSend.state}
+          onTrigger={sendFileToPhoneNow}
+          size="icon-tiny"
+        />
+      </SendToPhoneHoverSlot>
+    </span>
+  );
 }, areMarkdownFileLinkPropsEqual);
 
 function areMarkdownFileLinkPropsEqual(
@@ -2353,7 +2436,8 @@ function areMarkdownFileLinkPropsEqual(
     previous.onOpenInBrowser === next.onOpenInBrowser &&
     previous.onOpenMedia === next.onOpenMedia &&
     previous.onReveal === next.onReveal &&
-    previous.revealLabel === next.revealLabel
+    previous.revealLabel === next.revealLabel &&
+    previous.onSendToPhone === next.onSendToPhone
   );
 }
 
@@ -2784,6 +2868,7 @@ function useChatMarkdownState({
               ? () => openMarkdownFileInPreview(fileLinkMeta.filePath)
               : undefined
           }
+          onSendToPhone={sendToPhone}
         />
       );
     },
@@ -2800,6 +2885,7 @@ function useChatMarkdownState({
       resolvedTheme,
       revealInFileManagerLabel,
       revealMarkdownFileInFileManager,
+      sendToPhone,
       threadRef,
     ],
   );
@@ -3022,6 +3108,8 @@ const CHAT_MARKDOWN_COMPONENTS = {
       fileLinkChip,
       renderContextReference,
       text,
+      sendToPhone,
+      isStreaming,
     } = use(ChatMarkdownRendererContext);
     const citation = href ? parseAssistantCitationHref(href) : null;
     if (citation) return <AssistantCitationChip citation={citation} />;
@@ -3230,35 +3318,40 @@ const CHAT_MARKDOWN_COMPONENTS = {
       if (!faviconHost || !href) {
         return link;
       }
+      const phoneSend = isStreaming ? undefined : sendToPhone;
       if (pullRequestPreviewTarget !== null) {
         return (
-          <PullRequestLinkPreview
-            link={link}
-            originalUrl={href}
-            target={pullRequestPreviewTarget}
-            confirmBeforeOpen={confirmBeforeOpen}
-            onOpenPullRequest={(targetUrl) =>
-              openChangeRequestLink(
-                {
-                  metaKey: false,
-                  ctrlKey: false,
-                  preventDefault: () => undefined,
-                  stopPropagation: () => undefined,
-                },
-                targetUrl,
-                undefined,
-                environmentId ?? undefined,
-              )
-            }
-            onOpenFallback={openDeferredMarkdownLink}
-          />
+          <PhoneClipHost text={href} send={phoneSend}>
+            <PullRequestLinkPreview
+              link={link}
+              originalUrl={href}
+              target={pullRequestPreviewTarget}
+              confirmBeforeOpen={confirmBeforeOpen}
+              onOpenPullRequest={(targetUrl) =>
+                openChangeRequestLink(
+                  {
+                    metaKey: false,
+                    ctrlKey: false,
+                    preventDefault: () => undefined,
+                    stopPropagation: () => undefined,
+                  },
+                  targetUrl,
+                  undefined,
+                  environmentId ?? undefined,
+                )
+              }
+              onOpenFallback={openDeferredMarkdownLink}
+            />
+          </PhoneClipHost>
         );
       }
       return (
-        <Tooltip>
-          <TooltipTrigger render={link} />
-          <TooltipPopup side="top">{href}</TooltipPopup>
-        </Tooltip>
+        <PhoneClipHost text={href} send={phoneSend}>
+          <Tooltip>
+            <TooltipTrigger render={link} />
+            <TooltipPopup side="top">{href}</TooltipPopup>
+          </Tooltip>
+        </PhoneClipHost>
       );
     }
 
@@ -3280,9 +3373,15 @@ const CHAT_MARKDOWN_COMPONENTS = {
     );
   },
   code: function MarkdownCode({ node, children, className, ...props }) {
-    const { cwd, imageBaseDir, inlineCodeFileLinkMetaByText, fileLinkChip, typeInTmux } = use(
-      ChatMarkdownRendererContext,
-    );
+    const {
+      cwd,
+      imageBaseDir,
+      inlineCodeFileLinkMetaByText,
+      fileLinkChip,
+      typeInTmux,
+      sendToPhone,
+      isStreaming,
+    } = use(ChatMarkdownRendererContext);
     const insideLink = use(MarkdownLinkContext);
     if (node?.properties?.dataInlineCode != null) {
       const codeText = nodeToPlainText(children);
@@ -3297,8 +3396,9 @@ const CHAT_MARKDOWN_COMPONENTS = {
         );
       }
       // Sao's fork: any other inline code is clickable and gets typed, unrun,
-      // into a new window of tmux session T3.
+      // into a new window of tmux session T3, and a hover icon copies it to the phone.
       const command = codeText.trim();
+      const phoneSend = !insideLink && !isStreaming && command.length > 0 ? sendToPhone : undefined;
       if (typeInTmux && !insideLink && command.length > 0) {
         const send = () => {
           // Dragging to select text inside the chip is not a click.
@@ -3306,26 +3406,35 @@ const CHAT_MARKDOWN_COMPONENTS = {
           typeInTmux(command);
         };
         return (
-          <code
-            {...props}
-            className={cn(
-              className,
-              "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
-            )}
-            role="button"
-            tabIndex={0}
-            onClick={send}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                send();
-              }
-            }}
-          >
-            {children}
-          </code>
+          <PhoneClipHost text={command} send={phoneSend}>
+            <code
+              {...props}
+              className={cn(
+                className,
+                "cursor-pointer hover:underline hover:decoration-dotted hover:underline-offset-2",
+              )}
+              role="button"
+              tabIndex={0}
+              onClick={send}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  send();
+                }
+              }}
+            >
+              {children}
+            </code>
+          </PhoneClipHost>
         );
       }
+      return (
+        <PhoneClipHost text={command} send={phoneSend}>
+          <code {...props} className={className}>
+            {children}
+          </code>
+        </PhoneClipHost>
+      );
     }
     return (
       <code {...props} className={className}>

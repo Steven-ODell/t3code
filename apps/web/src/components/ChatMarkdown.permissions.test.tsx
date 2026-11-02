@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   allowed: true,
   listeners: new Set<() => void>(),
   openEditor: vi.fn(),
+  sendToPhone: vi.fn(),
   updateMetadata: vi.fn(),
   search: vi.fn(),
   choose: vi.fn(),
@@ -47,10 +48,17 @@ vi.mock("./ui/toast", () => ({
   stackedThreadToast: (value: unknown) => value,
 }));
 vi.mock("../state/use-atom-query-runner", () => ({ useAtomQueryRunner: () => state.search }));
-vi.mock("../state/use-atom-command", () => ({
-  useAtomCommand: (command: string) =>
-    command === "updateMetadata" ? state.updateMetadata : state.openEditor,
-}));
+vi.mock("../state/use-atom-command", async () => {
+  const { shellEnvironment } = await import("../state/shell");
+  return {
+    useAtomCommand: (command: unknown) =>
+      command === "updateMetadata"
+        ? state.updateMetadata
+        : command === shellEnvironment.sendToPhone
+          ? state.sendToPhone
+          : state.openEditor,
+  };
+});
 vi.mock("../state/session", async () => {
   const { useSyncExternalStore } = await import("react");
   const readEnvironmentScope = (id: EnvironmentId | null, scope: AuthEnvironmentScope) =>
@@ -149,6 +157,9 @@ beforeEach(() => {
   state.listeners.clear();
   state.linkedPullRequest = null;
   state.openEditor.mockReset().mockResolvedValue(AsyncResult.success(undefined));
+  state.sendToPhone
+    .mockReset()
+    .mockResolvedValue(AsyncResult.success({ kind: "text", detail: "sent" }));
   state.updateMetadata.mockReset().mockResolvedValue(AsyncResult.success(undefined));
   state.search.mockReset().mockResolvedValue(AsyncResult.success({ entries: [] }));
   state.choose.mockReset().mockResolvedValue(null);
@@ -185,6 +196,19 @@ async function openContextMenu() {
   await act(async () => anchor().props.onContextMenu(menuEvent()));
 }
 
+function phoneButtons() {
+  return renderer!.root.findAll(
+    (node) => typeof node.type === "string" && node.props["data-phone-state"] !== undefined,
+  );
+}
+
+async function revokeHostAccess() {
+  await act(async () => {
+    state.allowed = false;
+    for (const listener of state.listeners) listener();
+  });
+}
+
 function offeredActions() {
   return state.choose.mock.lastCall![0].map((item: { id: string }) => item.id);
 }
@@ -192,7 +216,14 @@ function offeredActions() {
 it("removes host actions after revocation while keeping file preview and copying", async () => {
   await renderMarkdown("[Readme](docs/readme.md)");
   await openContextMenu();
-  expect(offeredActions()).toEqual(["open", "reveal", "copy-relative", "copy-full"]);
+  expect(offeredActions()).toEqual([
+    "open",
+    "reveal",
+    "copy-relative",
+    "copy-full",
+    "phone-file",
+    "phone-path",
+  ]);
   await act(async () => {
     state.allowed = false;
     for (const listener of state.listeners) listener();
@@ -298,3 +329,44 @@ it.each(["link-to-thread", "unlink-from-thread"])(
     });
   },
 );
+
+it.each([
+  ["phone-file", { kind: "file", path: "/work/docs/readme.md" }],
+  ["phone-path", { kind: "text", text: "/work/docs/readme.md" }],
+] as const)("sends a file link to the phone from the %s menu item", async (action, input) => {
+  state.choose.mockResolvedValue(action);
+  await renderMarkdown("[Readme](docs/readme.md:12)");
+  await openContextMenu();
+  expect(state.sendToPhone).toHaveBeenCalledExactlyOnceWith({
+    environmentId: threadRef.environmentId,
+    input,
+  });
+  // The hover icon shows the result of a send started from the menu.
+  expect(phoneButtons().map((button) => button.props["data-phone-state"])).toEqual(["sent"]);
+});
+
+it("puts phone icons on file links, web links and inline code, and drops them on revocation", async () => {
+  await renderMarkdown("[Readme](docs/readme.md) [Site](https://example.com/a) `ls -la`");
+  const buttons = phoneButtons();
+  expect(buttons.map((button) => button.props["aria-label"])).toEqual([
+    "Send file to phone",
+    "Copy to phone clipboard",
+    "Copy to phone clipboard",
+  ]);
+  for (const button of buttons) {
+    await act(async () => button.props.onClick({ stopPropagation: vi.fn() }));
+  }
+  expect(state.sendToPhone.mock.calls.map(([request]) => request.input)).toEqual([
+    { kind: "file", path: "/work/docs/readme.md" },
+    { kind: "text", text: "https://example.com/a" },
+    { kind: "text", text: "ls -la" },
+  ]);
+  expect(state.openFile).not.toHaveBeenCalled();
+  expect(state.openExternal).not.toHaveBeenCalled();
+
+  await revokeHostAccess();
+  expect(phoneButtons()).toHaveLength(0);
+  const fileLink = renderer!.root.findAllByType("a")[0]!;
+  await act(async () => fileLink.props.onContextMenu(menuEvent()));
+  expect(offeredActions()).not.toContain("phone-file");
+});
