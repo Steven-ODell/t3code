@@ -143,13 +143,17 @@ export function sendToPhoneLabel(kind: ShellSendToPhoneInput["kind"], state: Sen
 
 /**
  * Holds a hover phone icon over the end of an inline chip, so showing it moves
- * no text. The host needs `group/phone relative`. The icon shows while the host
- * is hovered or focused, and stays while it is spinning or showing its result.
+ * no text. Place it right after the chip inside a `group/phone` host. A
+ * zero-width anchor carries the position, so on a chip that wraps the icon sits
+ * at the end of its last line. The icon shows while the host is hovered or
+ * focused, and stays while it is spinning or showing its result.
  */
 export function SendToPhoneHoverSlot({ children }: { children: ReactNode }) {
   return (
-    <span className="pointer-events-none absolute top-1/2 right-0 z-10 flex -translate-y-1/2 rounded-sm bg-popover opacity-0 shadow-xs transition-opacity group-hover/phone:pointer-events-auto group-hover/phone:opacity-100 group-focus-within/phone:pointer-events-auto group-focus-within/phone:opacity-100 has-[[data-phone-state]:not([data-phone-state=idle])]:pointer-events-auto has-[[data-phone-state]:not([data-phone-state=idle])]:opacity-100">
-      {children}
+    <span className="relative inline-block h-[1em] w-0 align-middle">
+      <span className="pointer-events-none absolute top-1/2 right-0 z-10 flex -translate-y-1/2 rounded-sm bg-popover opacity-0 shadow-xs transition-opacity group-hover/phone:pointer-events-auto group-hover/phone:opacity-100 group-focus-within/phone:pointer-events-auto group-focus-within/phone:opacity-100 has-[[data-phone-state]:not([data-phone-state=idle])]:pointer-events-auto has-[[data-phone-state]:not([data-phone-state=idle])]:opacity-100">
+        {children}
+      </span>
     </span>
   );
 }

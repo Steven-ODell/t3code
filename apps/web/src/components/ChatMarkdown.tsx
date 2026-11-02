@@ -2006,7 +2006,7 @@ function PhoneClipHost({
   const input = useMemo(() => ({ kind: "text", text }) as const, [text]);
   if (!send) return children;
   return (
-    <span className="group/phone relative">
+    <span className="group/phone">
       {children}
       <SendToPhoneHoverSlot>
         <SendToPhoneButton input={input} send={send} size="icon-tiny" />
@@ -2400,7 +2400,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   );
   if (!onSendToPhone) return chip;
   return (
-    <span className="group/phone relative">
+    <span className="group/phone">
       {chip}
       <SendToPhoneHoverSlot>
         <SendToPhoneIconButton
